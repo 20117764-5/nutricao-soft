@@ -57,7 +57,7 @@ export default function AdminHeader() {
                     <Calendar className="mr-3 h-4 w-4 text-nutri-primary" />
                     Agendamentos
                   </Link>
-                  <Link href="/admin/consultorio/pre-consulta" className="flex items-center px-4 py-2.5 text-sm text-gray-700 hover:bg-nutri-50 hover:text-nutri-primary transition-colors">
+                  <Link href="/admin/consultorio/pre-consultas" className="flex items-center px-4 py-2.5 text-sm text-gray-700 hover:bg-nutri-50 hover:text-nutri-primary transition-colors">
                     <ClipboardList className="mr-3 h-4 w-4 text-nutri-primary" />
                     Pré-consulta
                   </Link>

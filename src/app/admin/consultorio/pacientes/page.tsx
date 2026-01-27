@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { 
   Search, Plus, MoreHorizontal, Phone, User, Loader2, Trash2, 
-  FileText, Calendar as CalendarIcon, Filter, Cake, X, List, Edit 
+  FileText, Calendar as CalendarIcon, Filter, Cake, X, List, Edit, ChevronRight 
 } from 'lucide-react';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import NovoPacienteModal from '@/components/NovoPacienteModal';
-import EditarPacienteModal from '@/components/EditarPacienteModal'; // IMPORT NOVO
+import EditarPacienteModal from '@/components/EditarPacienteModal';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
 } from 'recharts';
@@ -34,20 +35,14 @@ export default function PaginaPacientes() {
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Estados de Interface e Modais
-  const [isModalOpen, setIsModalOpen] = useState(false); // Cadastro
-  const [isListaCompletaOpen, setIsListaCompletaOpen] = useState(false); // Lista Completa
-  
-  // -- NOVO: Estado para Edição --
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isListaCompletaOpen, setIsListaCompletaOpen] = useState(false);
   const [pacienteEditando, setPacienteEditando] = useState<Paciente | null>(null);
-
   const [menuAbertoId, setMenuAbertoId] = useState<string | null>(null);
 
-  // Filtros
   const [termoBusca, setTermoBusca] = useState('');
   const [filtroAtivo, setFiltroAtivo] = useState<'todos' | 'aniversariantes'>('todos');
 
-  // Gráfico
   const [dadosGrafico, setDadosGrafico] = useState<DadosGrafico[]>([]);
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear());
 
@@ -178,22 +173,18 @@ export default function PaginaPacientes() {
                     <td className="px-6 py-4 text-sm text-gray-500">
                       <div className="flex items-center gap-1"><Phone className="w-3 h-3" /> {paciente.telefone || '-'}</div>
                     </td>
-                    
-                    {/* AÇÕES NA TELA PRINCIPAL */}
                     <td className="px-6 py-4 text-right relative">
                         <button onClick={() => setMenuAbertoId(menuAbertoId === paciente.id ? null : paciente.id)} className="text-gray-400 hover:text-nutri-primary p-1 rounded-full hover:bg-nutri-100 transition-colors">
                           <MoreHorizontal className="w-5 h-5" />
                         </button>
                         {menuAbertoId === paciente.id && (
                           <div className="absolute right-8 top-8 w-36 bg-white shadow-lg rounded-md border border-gray-100 z-10 overflow-hidden animate-in fade-in zoom-in duration-150">
-                            {/* BOTÃO EDITAR */}
                             <button 
                               onClick={() => { setPacienteEditando(paciente); setMenuAbertoId(null); }}
                               className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-b border-gray-50"
                             >
                               <Edit className="w-3 h-3 text-blue-500" /> Editar
                             </button>
-                            {/* BOTÃO EXCLUIR */}
                             <button onClick={() => handleExcluir(paciente.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
                               <Trash2 className="w-3 h-3" /> Excluir
                             </button>
@@ -205,24 +196,25 @@ export default function PaginaPacientes() {
               )}
             </tbody>
           </table>
-          {pacientes.length > 5 && (
-            <div className="bg-gray-50 p-3 text-center border-t border-gray-100">
-               <button onClick={() => setIsListaCompletaOpen(true)} className="text-sm text-gray-600 hover:text-nutri-primary font-medium">
-                 Ver todos os {pacientes.length} pacientes &rarr;
-               </button>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* BLOCO 2: GRÁFICO */}
+      {/* BLOCO 2: GRÁFICO COM LINK PARA ESTATÍSTICAS */}
       <div className="bg-white rounded-xl shadow-sm border border-nutri-100 p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
           <div>
-            <h3 className="text-lg font-bold text-nutri-dark flex items-center gap-2">
-              <CalendarIcon className="w-5 h-5 text-nutri-primary" /> Volume de Consultas
-            </h3>
-            <p className="text-sm text-gray-500">Total de agendamentos realizados por mês.</p>
+            <div className="flex items-center gap-3">
+              <h3 className="text-lg font-bold text-nutri-dark flex items-center gap-2">
+                <CalendarIcon className="w-5 h-5 text-nutri-primary" /> Volume de Consultas
+              </h3>
+              <Link 
+                href="/admin/consultorio/estatisticas" 
+                className="text-[10px] bg-nutri-100 text-nutri-dark px-2 py-1 rounded hover:bg-nutri-200 transition-colors font-bold flex items-center gap-1 uppercase tracking-wider"
+              >
+                Abrir estatísticas <ChevronRight className="w-3 h-3" />
+              </Link>
+            </div>
+            <p className="text-sm text-gray-500 mt-1">Total de agendamentos realizados por mês.</p>
           </div>
           <div className="flex items-center gap-2 bg-nutri-50 p-1 rounded-lg border border-nutri-100">
             <Filter className="w-4 h-4 text-nutri-primary ml-2" />
@@ -254,10 +246,8 @@ export default function PaginaPacientes() {
         </div>
       </div>
 
-      {/* --- MODAIS --- */}
       <NovoPacienteModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSuccess={fetchPacientes} />
       
-      {/* MODAL DE EDIÇÃO (NOVO) */}
       <EditarPacienteModal 
         isOpen={!!pacienteEditando}
         paciente={pacienteEditando}
@@ -306,77 +296,43 @@ export default function PaginaPacientes() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-auto p-0">
+            <div className="flex-1 overflow-auto">
               <table className="min-w-full divide-y divide-gray-100">
                 <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Paciente</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Contato</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Nascimento</th>
                     <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-50">
-                  {pacientesFiltrados.length === 0 ? (
-                    <tr><td colSpan={4} className="p-10 text-center text-gray-500">Nenhum resultado encontrado.</td></tr>
-                  ) : (
-                    pacientesFiltrados.map((paciente) => {
-                      const mesNasc = paciente.data_nascimento ? parseInt(paciente.data_nascimento.split('-')[1]) - 1 : -1;
-                      const ehAniversariante = mesNasc === new Date().getMonth();
-
-                      return (
-                        <tr key={paciente.id} className={`transition-colors ${ehAniversariante ? 'bg-yellow-50 hover:bg-yellow-100' : 'hover:bg-nutri-50/30'}`}>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <div className="text-sm font-medium text-gray-900">{paciente.nome}</div>
-                              {ehAniversariante && <span title="Aniversariante"><Cake className="w-4 h-4 text-pink-500" /></span>}
-                            </div>
-                            <div className="text-xs text-gray-400 flex items-center gap-1"><FileText className="w-3 h-3"/> {paciente.cpf || 'Sem CPF'}</div>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-500">
-                            <div className="flex items-center gap-1"><Phone className="w-3 h-3" /> {paciente.telefone || '-'}</div>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-500">
-                            {paciente.data_nascimento ? format(new Date(paciente.data_nascimento), 'dd/MM/yyyy') : '-'}
-                          </td>
-                          <td className="px-6 py-4 text-right relative">
-                            <button onClick={() => setMenuAbertoId(menuAbertoId === paciente.id ? null : paciente.id)} className="text-gray-400 hover:text-nutri-primary p-1 rounded-full hover:bg-nutri-100">
-                              <MoreHorizontal className="w-5 h-5" />
-                            </button>
-                            {menuAbertoId === paciente.id && (
-                              <div className="absolute right-12 top-2 w-36 bg-white shadow-xl rounded-md border border-gray-100 z-50 overflow-hidden">
-                                {/* BOTÃO EDITAR (No Modal Grande) */}
-                                <button 
-                                  onClick={() => { setPacienteEditando(paciente); setMenuAbertoId(null); }}
-                                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-b border-gray-50"
-                                >
-                                  <Edit className="w-3 h-3 text-blue-500" /> Editar
-                                </button>
-                                {/* BOTÃO EXCLUIR */}
-                                <button onClick={() => handleExcluir(paciente.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
-                                  <Trash2 className="w-3 h-3" /> Excluir
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
+                  {pacientesFiltrados.map((paciente) => (
+                    <tr key={paciente.id} className="hover:bg-nutri-50/30">
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">{paciente.nome}</td>
+                      <td className="px-6 py-4 text-sm text-gray-500">{paciente.telefone || '-'}</td>
+                      <td className="px-6 py-4 text-right relative">
+                        <button onClick={() => setMenuAbertoId(menuAbertoId === paciente.id ? null : paciente.id)} className="text-gray-400 hover:text-nutri-primary p-1">
+                          <MoreHorizontal className="w-5 h-5" />
+                        </button>
+                        {menuAbertoId === paciente.id && (
+                          <div className="absolute right-12 top-2 w-36 bg-white shadow-xl rounded-md border border-gray-100 z-50">
+                            <button onClick={() => { setPacienteEditando(paciente); setMenuAbertoId(null); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"><Edit className="w-3 h-3" /> Editar</button>
+                            <button onClick={() => handleExcluir(paciente.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"><Trash2 className="w-3 h-3" /> Excluir</button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
 
-            <div className="p-4 border-t border-gray-100 bg-gray-50 rounded-b-xl flex justify-between items-center">
-               <span className="text-xs text-gray-500">Total: {pacientesFiltrados.length} listados</span>
-               <button onClick={() => setIsListaCompletaOpen(false)} className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100">
-                 Fechar
-               </button>
+            <div className="p-4 border-t bg-gray-50 flex justify-end">
+               <button onClick={() => setIsListaCompletaOpen(false)} className="px-4 py-2 bg-white border rounded-lg text-sm font-medium">Fechar</button>
             </div>
           </div>
         </div>
       )}
-
     </div>
   );
 }
