@@ -5,7 +5,7 @@ import {
   Search, Plus, MoreHorizontal, Phone, User, Loader2, Trash2, 
   FileText, Calendar as CalendarIcon, Filter, Cake, X, List, Edit, ChevronRight 
 } from 'lucide-react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation'; // Adicionado
 import { supabase } from '@/lib/supabase';
 import NovoPacienteModal from '@/components/NovoPacienteModal';
 import EditarPacienteModal from '@/components/EditarPacienteModal';
@@ -32,6 +32,7 @@ interface DadosGrafico {
 }
 
 export default function PaginaPacientes() {
+  const router = useRouter(); // Hook para navegação
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -110,6 +111,10 @@ export default function PaginaPacientes() {
     }
   };
 
+  const handleAbrirPerfil = (id: string) => {
+    router.push(`/admin/consultorio/pacientes/${id}`);
+  };
+
   const pacientesFiltrados = pacientes.filter((p) => {
     const termo = termoBusca.toLowerCase();
     const matchTexto = p.nome.toLowerCase().includes(termo) || p.cpf?.includes(termo);
@@ -165,27 +170,37 @@ export default function PaginaPacientes() {
                  <tr><td colSpan={3} className="p-10 text-center text-gray-500">Nenhum paciente cadastrado ainda.</td></tr>
               ) : (
                 pacientesRecentes.map((paciente) => (
-                  <tr key={paciente.id} className="hover:bg-nutri-50/30 transition-colors">
+                  <tr 
+                    key={paciente.id} 
+                    onClick={() => handleAbrirPerfil(paciente.id)}
+                    className="hover:bg-nutri-50/30 transition-colors cursor-pointer group"
+                  >
                     <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">{paciente.nome}</div>
+                      <div className="text-sm font-medium text-gray-900 group-hover:text-nutri-primary transition-colors">{paciente.nome}</div>
                       <div className="text-xs text-gray-400">Cadastrado em {format(new Date(paciente.created_at), 'dd/MM/yyyy')}</div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
                       <div className="flex items-center gap-1"><Phone className="w-3 h-3" /> {paciente.telefone || '-'}</div>
                     </td>
                     <td className="px-6 py-4 text-right relative">
-                        <button onClick={() => setMenuAbertoId(menuAbertoId === paciente.id ? null : paciente.id)} className="text-gray-400 hover:text-nutri-primary p-1 rounded-full hover:bg-nutri-100 transition-colors">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setMenuAbertoId(menuAbertoId === paciente.id ? null : paciente.id); }} 
+                          className="text-gray-400 hover:text-nutri-primary p-1 rounded-full hover:bg-nutri-100 transition-colors"
+                        >
                           <MoreHorizontal className="w-5 h-5" />
                         </button>
                         {menuAbertoId === paciente.id && (
-                          <div className="absolute right-8 top-8 w-36 bg-white shadow-lg rounded-md border border-gray-100 z-10 overflow-hidden animate-in fade-in zoom-in duration-150">
+                          <div className="absolute right-8 top-8 w-36 bg-white shadow-lg rounded-md border border-gray-100 z-10 overflow-hidden animate-in fade-in zoom-in duration-150 text-left">
                             <button 
-                              onClick={() => { setPacienteEditando(paciente); setMenuAbertoId(null); }}
+                              onClick={(e) => { e.stopPropagation(); setPacienteEditando(paciente); setMenuAbertoId(null); }}
                               className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-b border-gray-50"
                             >
                               <Edit className="w-3 h-3 text-blue-500" /> Editar
                             </button>
-                            <button onClick={() => handleExcluir(paciente.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); handleExcluir(paciente.id); }} 
+                              className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                            >
                               <Trash2 className="w-3 h-3" /> Excluir
                             </button>
                           </div>
@@ -199,7 +214,7 @@ export default function PaginaPacientes() {
         </div>
       </div>
 
-      {/* BLOCO 2: GRÁFICO COM LINK PARA ESTATÍSTICAS */}
+      {/* BLOCO 2: GRÁFICO */}
       <div className="bg-white rounded-xl shadow-sm border border-nutri-100 p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
           <div>
@@ -207,12 +222,11 @@ export default function PaginaPacientes() {
               <h3 className="text-lg font-bold text-nutri-dark flex items-center gap-2">
                 <CalendarIcon className="w-5 h-5 text-nutri-primary" /> Volume de Consultas
               </h3>
-              <Link 
-                href="/admin/consultorio/estatisticas" 
+              <button 
                 className="text-[10px] bg-nutri-100 text-nutri-dark px-2 py-1 rounded hover:bg-nutri-200 transition-colors font-bold flex items-center gap-1 uppercase tracking-wider"
               >
                 Abrir estatísticas <ChevronRight className="w-3 h-3" />
-              </Link>
+              </button>
             </div>
             <p className="text-sm text-gray-500 mt-1">Total de agendamentos realizados por mês.</p>
           </div>
@@ -307,17 +321,24 @@ export default function PaginaPacientes() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-50">
                   {pacientesFiltrados.map((paciente) => (
-                    <tr key={paciente.id} className="hover:bg-nutri-50/30">
+                    <tr 
+                      key={paciente.id} 
+                      onClick={() => handleAbrirPerfil(paciente.id)}
+                      className="hover:bg-nutri-50/30 cursor-pointer"
+                    >
                       <td className="px-6 py-4 text-sm font-medium text-gray-900">{paciente.nome}</td>
                       <td className="px-6 py-4 text-sm text-gray-500">{paciente.telefone || '-'}</td>
                       <td className="px-6 py-4 text-right relative">
-                        <button onClick={() => setMenuAbertoId(menuAbertoId === paciente.id ? null : paciente.id)} className="text-gray-400 hover:text-nutri-primary p-1">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setMenuAbertoId(menuAbertoId === paciente.id ? null : paciente.id); }} 
+                          className="text-gray-400 hover:text-nutri-primary p-1"
+                        >
                           <MoreHorizontal className="w-5 h-5" />
                         </button>
                         {menuAbertoId === paciente.id && (
-                          <div className="absolute right-12 top-2 w-36 bg-white shadow-xl rounded-md border border-gray-100 z-50">
-                            <button onClick={() => { setPacienteEditando(paciente); setMenuAbertoId(null); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"><Edit className="w-3 h-3" /> Editar</button>
-                            <button onClick={() => handleExcluir(paciente.id)} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"><Trash2 className="w-3 h-3" /> Excluir</button>
+                          <div className="absolute right-12 top-2 w-36 bg-white shadow-xl rounded-md border border-gray-100 z-50 text-left">
+                            <button onClick={(e) => { e.stopPropagation(); setPacienteEditando(paciente); setMenuAbertoId(null); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 border-b border-gray-50"><Edit className="w-3 h-3" /> Editar</button>
+                            <button onClick={(e) => { e.stopPropagation(); handleExcluir(paciente.id); }} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"><Trash2 className="w-3 h-3" /> Excluir</button>
                           </div>
                         )}
                       </td>

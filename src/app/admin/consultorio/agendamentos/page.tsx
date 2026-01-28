@@ -3,10 +3,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { 
   format, startOfMonth, endOfMonth, eachDayOfInterval, 
-  isSameMonth, isSameDay, addMonths, subMonths, getDay 
+  isSameMonth, isSameDay, addMonths, subMonths, getDay, parseISO 
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, Plus, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Loader2, Check, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import NovoAgendamentoModal from '@/components/NovoAgendamentoModal';
 import EditarAgendamentoModal from '@/components/EditarAgendamentoModal';
@@ -29,7 +29,9 @@ const TIPOS_AGENDAMENTO: Record<string, { label: string; color: string; text: st
 const STATUS_BORDAS: Record<string, string> = {
   a_confirmar: 'border-l-4 border-gray-400',
   confirmado: 'border-l-4 border-lime-500',
-  desmarcado: 'border-l-4 border-red-500 opacity-60', // Opacidade se desmarcado
+  desmarcado: 'border-l-4 border-red-500 opacity-60',
+  Realizada: 'border-l-4 border-green-600', // Novo Status
+  Faltou: 'border-l-4 border-red-600',      // Novo Status
 };
 
 interface Agendamento {
@@ -47,6 +49,7 @@ export default function PaginaAgendamentos() {
   const [dataAtual, setDataAtual] = useState(new Date());
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
   
   // Modais
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
@@ -85,6 +88,27 @@ export default function PaginaAgendamentos() {
 
   useEffect(() => { fetchAgendamentos(); }, [fetchAgendamentos]);
 
+  // FUNÇÃO PARA ATUALIZAR STATUS RÁPIDO
+  const handleUpdateStatus = async (e: React.MouseEvent, id: string, novoStatus: string) => {
+    e.stopPropagation(); // Evita abrir o modal de edição
+    setUpdatingId(id);
+    try {
+      const { error } = await supabase
+        .from('agendamentos')
+        .update({ status: novoStatus })
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      // Atualiza o estado local para refletir a mudança visual imediata
+      setAgendamentos(prev => prev.map(ag => ag.id === id ? { ...ag, status: novoStatus } : ag));
+    } catch (error) {
+      console.error('Erro ao atualizar status:', error);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   const diasDoMes = eachDayOfInterval({ start: startOfMonth(dataAtual), end: endOfMonth(dataAtual) });
   const diaDaSemanaInicio = getDay(startOfMonth(dataAtual));
   const diasVaziosInicio = Array(diaDaSemanaInicio).fill(null);
@@ -120,29 +144,54 @@ export default function PaginaAgendamentos() {
           {diasVaziosInicio.map((_, i) => <div key={`empty-${i}`} className="bg-white" />)}
           
           {diasDoMes.map((dia) => {
-            const agendamentosDoDia = agendamentos.filter(ag => isSameDay(new Date(ag.data_consulta), dia));
+            const agendamentosDoDia = agendamentos.filter(ag => isSameDay(parseISO(ag.data_consulta), dia));
             agendamentosDoDia.sort((a, b) => new Date(a.data_consulta).getTime() - new Date(b.data_consulta).getTime());
             const ehHoje = isSameDay(dia, new Date());
 
             return (
-              <div key={dia.toString()} className={`bg-white min-h-[100px] p-2 hover:bg-gray-50 transition-colors ${!isSameMonth(dia, dataAtual) ? 'bg-gray-50 text-gray-400' : ''}`}>
-                <span className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full mb-1 ${ehHoje ? 'bg-nutri-primary text-white' : 'text-gray-700'}`}>
+              <div key={dia.toString()} className={`bg-white min-h-[120px] p-1.5 hover:bg-gray-50 transition-colors ${!isSameMonth(dia, dataAtual) ? 'bg-gray-50 text-gray-400' : ''}`}>
+                <span className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full mb-1 ${ehHoje ? 'bg-nutri-primary text-white' : 'text-gray-500'}`}>
                   {format(dia, 'd')}
                 </span>
                 <div className="space-y-1">
                   {agendamentosDoDia.map((agendamento) => {
                     const estilo = TIPOS_AGENDAMENTO[agendamento.tipo_agendamento] || TIPOS_AGENDAMENTO['presencial'];
                     const borda = STATUS_BORDAS[agendamento.status] || STATUS_BORDAS['a_confirmar'];
-                    const hora = format(new Date(agendamento.data_consulta), 'HH:mm');
+                    const hora = format(parseISO(agendamento.data_consulta), 'HH:mm');
 
                     return (
                       <div 
                         key={agendamento.id}
-                        onClick={() => setAgendamentoSelecionado(agendamento)} // <--- CLIQUE AQUI ABRE O MODAL
-                        className={`text-xs p-1.5 rounded shadow-sm cursor-pointer hover:scale-105 hover:opacity-100 transition-all ${estilo.color} ${estilo.text} ${borda}`}
+                        onClick={() => setAgendamentoSelecionado(agendamento)}
+                        className={`text-[10px] p-1.5 rounded shadow-sm cursor-pointer hover:scale-[1.02] transition-all relative group ${estilo.color} ${estilo.text} ${borda}`}
                       >
                         <div className="font-bold truncate">{hora} - {agendamento.pacientes?.nome}</div>
-                        <div className="text-[10px] opacity-90 truncate">{estilo.label}</div>
+                        
+                        {/* AÇÕES RÁPIDAS (Aparecem no Hover) */}
+                        <div className="absolute top-0 right-0 h-full hidden group-hover:flex items-center gap-1 bg-inherit px-1 rounded-r">
+                           {updatingId === agendamento.id ? (
+                             <Loader2 className="w-3 h-3 animate-spin" />
+                           ) : (
+                             <>
+                               <button 
+                                 onClick={(e) => handleUpdateStatus(e, agendamento.id, 'Realizada')}
+                                 className="bg-green-600 text-white p-0.5 rounded hover:bg-green-700 transition-colors"
+                                 title="Compareceu"
+                               >
+                                 <Check size={10} />
+                               </button>
+                               <button 
+                                 onClick={(e) => handleUpdateStatus(e, agendamento.id, 'Faltou')}
+                                 className="bg-red-600 text-white p-0.5 rounded hover:bg-red-700 transition-colors"
+                                 title="Faltou"
+                               >
+                                 <X size={10} />
+                               </button>
+                             </>
+                           )}
+                        </div>
+                        
+                        <div className="opacity-80 truncate">{estilo.label}</div>
                       </div>
                     );
                   })}
@@ -153,27 +202,40 @@ export default function PaginaAgendamentos() {
         </div>
       </div>
 
-      {/* LEGENDA */}
-      <div className="bg-white p-4 rounded-xl border border-nutri-100">
-        <h3 className="text-sm font-bold text-gray-700 mb-3">Legenda</h3>
-        <div className="flex flex-wrap gap-3">
-          {Object.entries(TIPOS_AGENDAMENTO).map(([key, value]) => (
-            <div key={key} className="flex items-center gap-2">
-              <div className={`w-3 h-3 rounded-full ${value.color}`}></div>
-              <span className="text-xs text-gray-600">{value.label}</span>
+      {/* LEGENDA ATUALIZADA */}
+      <div className="bg-white p-4 rounded-xl border border-nutri-100 flex flex-col sm:flex-row gap-6">
+        <div>
+          <h3 className="text-xs font-bold text-gray-400 uppercase mb-3 tracking-wider">Tipos</h3>
+          <div className="flex flex-wrap gap-3">
+            {Object.entries(TIPOS_AGENDAMENTO).slice(0, 6).map(([key, value]) => (
+              <div key={key} className="flex items-center gap-2">
+                <div className={`w-3 h-3 rounded-full ${value.color}`}></div>
+                <span className="text-[10px] text-gray-600 font-medium">{value.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="border-l border-gray-100 pl-6">
+          <h3 className="text-xs font-bold text-gray-400 uppercase mb-3 tracking-wider">Status de Presença</h3>
+          <div className="flex gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-green-600 rounded-sm"></div>
+              <span className="text-[10px] text-gray-600 font-bold uppercase">Realizada</span>
             </div>
-          ))}
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-red-600 rounded-sm"></div>
+              <span className="text-[10px] text-gray-600 font-bold uppercase">Faltou</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* MODAIS */}
       <NovoAgendamentoModal 
         isOpen={isNewModalOpen} 
         onClose={() => setIsNewModalOpen(false)} 
         onSuccess={fetchAgendamentos} 
       />
       
-      {/* Aqui a chave 'key' força o React a recriar o modal se mudarmos de um agendamento para outro */}
       {agendamentoSelecionado && (
         <EditarAgendamentoModal 
           key={agendamentoSelecionado.id}
