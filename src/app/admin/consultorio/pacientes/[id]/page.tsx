@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { 
   User, Activity, FileText, FlaskConical, Ruler, Baby, Zap, Utensils, 
   X, Copy, Edit, CalendarPlus, ClipboardList, Phone, Link as LinkIcon, 
   CheckCircle2, AlertCircle, Loader2, ChevronRight, Save, Clock, 
-  Calendar as CalendarIcon, Plus, Trash2, Send, FileDown, ChevronDown, ChevronUp, Upload, File
+  Calendar as CalendarIcon, Plus, Trash2, Send, FileDown, ChevronDown, ChevronUp, Upload, File, Info, Eye
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { differenceInYears, parseISO, format } from 'date-fns';
@@ -20,6 +20,36 @@ interface RespostaUnificada { id: string; titulo: string; data: string; tipo: 'a
 interface DbAnamneseRes { id: string; titulo: string | null; respondido_em: string; respostas: Record<string, string>; }
 interface DbFormResponse { id: string; form_title: string; created_at: string; responses: Record<string, string>; }
 interface ExameAnexado { id: string; nome_exame: string; arquivo_url: string; created_at: string; }
+
+// Interface para Antropometria
+interface AntropometriaData {
+  id?: string;
+  paciente_id?: string;
+  created_at?: string;
+  tipo_avaliacao: 'adulto' | 'crianca';
+  // Dados Básicos
+  peso: number;
+  altura: number;
+  altura_sentado: number;
+  altura_joelho: number;
+  // Dobras
+  formula_dobras: string;
+  tricipital: number; bicipital: number; abdominal: number; subescapular: number;
+  axilar_media: number; coxa: number; toracica: number; suprailiaca: number;
+  panturrilha_dobra: number; supraespinhal: number;
+  // Circunferências
+  pescoco: number; torax: number; ombro: number; cintura: number; abdomen_circ: number;
+  braco_relax: number; braco_contr: number; antebraco: number; 
+  coxa_prox: number; coxa_med: number; coxa_dist: number; 
+  panturrilha_circ: number; quadril: number; // Adicionado Quadril para RCQ
+  // Diâmetros
+  umero: number; punho: number; femur: number;
+  // Bioimpedância
+  perc_gordura_bio: number; massa_gorda_bio: number;
+  perc_musculo_bio: number; massa_musculo_bio: number;
+  massa_livre_gordura_bio: number; peso_osseo_bio: number;
+  gordura_visceral: number; agua_corporal: number; idade_metabolica: number;
+}
 
 type TabOption = 'perfil' | 'historico' | 'anamnese' | 'exames' | 'antropometria' | 'gestacional' | 'calculo' | 'planejamento';
 
@@ -59,6 +89,23 @@ export default function PerfilPacientePage() {
     "Perfil Lipídico", "Ureia e Creatinina", "TGO e TGP", "GGT",
     "Vitamina D (25-OH)", "Vitamina B12", "Ferritina", "TSH e T4 Livre"
   ];
+
+  // --- ESTADOS ANTROPOMETRIA ---
+  const [avaliacoesAntro, setAvaliacoesAntro] = useState<AntropometriaData[]>([]);
+  const [showAntroForm, setShowAntroForm] = useState(false);
+  const [isAntroChoiceOpen, setIsAntroChoiceOpen] = useState(false);
+  const [antroType, setAntroType] = useState<'adulto' | 'crianca'>('adulto');
+  const [savingAntro, setSavingAntro] = useState(false);
+  
+  // Estado Inicial do Formulário de Antropometria
+  const [antroForm, setAntroForm] = useState<AntropometriaData>({
+    tipo_avaliacao: 'adulto', peso: 0, altura: 0, altura_sentado: 0, altura_joelho: 0,
+    formula_dobras: 'Pollock 3',
+    tricipital: 0, bicipital: 0, abdominal: 0, subescapular: 0, axilar_media: 0, coxa: 0, toracica: 0, suprailiaca: 0, panturrilha_dobra: 0, supraespinhal: 0,
+    pescoco: 0, torax: 0, ombro: 0, cintura: 0, abdomen_circ: 0, braco_relax: 0, braco_contr: 0, antebraco: 0, coxa_prox: 0, coxa_med: 0, coxa_dist: 0, panturrilha_circ: 0, quadril: 0,
+    umero: 0, punho: 0, femur: 0,
+    perc_gordura_bio: 0, massa_gorda_bio: 0, perc_musculo_bio: 0, massa_musculo_bio: 0, massa_livre_gordura_bio: 0, peso_osseo_bio: 0, gordura_visceral: 0, agua_corporal: 0, idade_metabolica: 0
+  });
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editFormData, setEditFormData] = useState<Partial<Paciente>>({});
@@ -103,10 +150,64 @@ export default function PerfilPacientePage() {
       const { data } = await supabase.from('pacientes_exames').select('*').eq('paciente_id', id).order('created_at', { ascending: false });
       setExamesAnexados(data as ExameAnexado[] || []);
     }
+
+    // Carregar avaliações antropométricas salvas
+    if (activeTab === 'antropometria') {
+      const { data } = await supabase.from('antropometria').select('*').eq('paciente_id', id).order('created_at', { ascending: false });
+      setAvaliacoesAntro(data as AntropometriaData[] || []);
+    }
+
   }, [activeTab, id, paciente]);
 
   useEffect(() => { fetchPaciente(); }, [fetchPaciente]);
   useEffect(() => { fetchDataAbas(); }, [fetchDataAbas]);
+
+  // --- CÁLCULOS ANALÍTICOS (USEMEMO) ---
+  const analise = useMemo(() => {
+    // Extrair valores para facilitar
+    const { peso, altura, cintura, quadril, tricipital, abdominal, coxa, braco_relax, punho, femur } = antroForm;
+    const hM = altura / 100;
+    const idade = paciente?.data_nascimento ? differenceInYears(new Date(), parseISO(paciente.data_nascimento)) : 30; // Idade padrão se n tiver data
+
+    // 1. Pesos e Medidas
+    const imc = (peso > 0 && hM > 0) ? peso / (hM * hM) : 0;
+    const rcq = (cintura > 0 && quadril > 0) ? cintura / quadril : 0;
+    const cmb = (braco_relax > 0 && tricipital > 0) ? braco_relax - (Math.PI * (tricipital / 10)) : 0;
+    
+    // 2. Composição Corporal (Pollock 3 Dobras - Simplificado para exemplo, ideal adicionar sexo do paciente)
+    // Densidade Corporal (Exemplo Homens Pollock 3)
+    const somaDobras = tricipital + abdominal + coxa;
+    const densidade = somaDobras > 0 ? 1.10938 - (0.0008267 * somaDobras) + (0.0000016 * Math.pow(somaDobras, 2)) - (0.0002574 * idade) : 0;
+    
+    // Percentual Gordura (Siri ou Brozek) - Usando Brozek (1963)
+    const percGordura = densidade > 0 ? ((4.57 / densidade) - 4.142) * 100 : 0;
+
+    // Massas
+    const pesoGordura = (peso * percGordura) / 100;
+    // Estimativa Peso Ósseo (Von Dobeln modificado) - Simplificado
+    const pesoOsseo = (hM > 0 && punho > 0 && femur > 0) ? Math.pow(hM, 2) * (punho/100) * (femur/100) * 400 * 0.06 : 0;
+    const pesoResidual = peso * 0.24; // Estimativa padrão
+    const massaMuscular = peso - (pesoGordura + pesoOsseo + pesoResidual);
+    const massaLivre = peso - pesoGordura;
+
+    return {
+      imc: imc.toFixed(2),
+      imcClasse: imc < 18.5 ? 'Abaixo' : imc < 25 ? 'Eutrofia' : imc < 30 ? 'Sobrepeso' : 'Obesidade',
+      pesoIdeal: hM > 0 ? `${(18.5 * hM**2).toFixed(1)} - ${(24.9 * hM**2).toFixed(1)} kg` : '0',
+      rcq: rcq.toFixed(2),
+      riscoRcq: rcq > 0.90 ? 'Alto Risco' : 'Baixo Risco',
+      cmb: cmb.toFixed(2),
+      percGordura: percGordura.toFixed(1),
+      pesoGordura: pesoGordura.toFixed(2),
+      pesoOsseo: pesoOsseo.toFixed(2),
+      massaMuscular: massaMuscular.toFixed(2),
+      massaLivre: massaLivre.toFixed(2),
+      densidade: densidade.toFixed(4),
+      pesoResidual: pesoResidual.toFixed(2),
+      soma: somaDobras.toFixed(1)
+    };
+
+  }, [antroForm, paciente]);
 
   // --- HANDLERS ---
   const handleUpdate = async () => {
@@ -216,6 +317,33 @@ export default function PerfilPacientePage() {
     doc.save(`${item.titulo}_${paciente.nome}.pdf`);
   };
 
+  // Handler para Salvar Antropometria
+  const handleSaveAntro = async () => {
+    setSavingAntro(true);
+    try {
+      const payload = {
+        ...antroForm,
+        paciente_id: id,
+        tipo_avaliacao: antroType
+      };
+      
+      // Se tiver ID, atualiza, senão cria
+      if (antroForm.id) {
+        await supabase.from('antropometria').update(payload).eq('id', antroForm.id);
+      } else {
+        await supabase.from('antropometria').insert(payload);
+      }
+      
+      setShowAntroForm(false);
+      fetchDataAbas(); // Recarregar lista
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao salvar avaliação.');
+    } finally {
+      setSavingAntro(false);
+    }
+  };
+
   if (loading) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-nutri-primary" /></div>;
   if (!paciente) return null;
 
@@ -247,7 +375,7 @@ export default function PerfilPacientePage() {
         </header>
 
         <div className="flex-1 overflow-y-auto p-8 bg-gray-50/30">
-          <div className="max-w-5xl mx-auto">
+          <div className="max-w-7xl mx-auto">
             
             {/* CONTEÚDO PERFIL */}
             {activeTab === 'perfil' && (
@@ -275,6 +403,185 @@ export default function PerfilPacientePage() {
                     <ActionCard icon={<Zap size={24}/>} label="Orientação" color="bg-purple-500" onClick={() => {}} />
                   </div>
                 </section>
+              </div>
+            )}
+
+            {/* CONTEÚDO ANTROPOMETRIA */}
+            {activeTab === 'antropometria' && (
+              <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
+                {!showAntroForm ? (
+                  <>
+                    <div className="flex justify-between items-center bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                      <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Ruler className="text-nutri-primary" /> Avaliações Antropométricas</h3>
+                      <button onClick={() => setIsAntroChoiceOpen(true)} className="bg-nutri-dark text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:bg-black transition-all"><Plus size={18} /> Nova Avaliação</button>
+                    </div>
+                    {/* Lista de Avaliações Salvas */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {avaliacoesAntro.map(av => (
+                        <div key={av.id} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:border-nutri-primary cursor-pointer transition-all" onClick={() => { setAntroForm(av); setShowAntroForm(true); }}>
+                           <p className="font-bold text-gray-800 mb-1">{av.created_at ? format(parseISO(av.created_at), 'dd/MM/yyyy') : 'Sem data'}</p>
+                           <span className="text-xs uppercase font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">{av.tipo_avaliacao}</span>
+                           <div className="mt-3 text-sm text-gray-600">
+                              <p>Peso: {av.peso}kg</p>
+                              <p>IMC: {(av.peso / (av.altura/100)**2).toFixed(2)}</p>
+                           </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  // FORMULÁRIO DE ANTROPOMETRIA
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-20">
+                    <div className="lg:col-span-8 space-y-6">
+                       
+                       <div className="flex justify-between items-center">
+                          <h3 className="font-bold text-gray-700 text-lg">Nova Avaliação ({antroType})</h3>
+                          <button onClick={() => setShowAntroForm(false)} className="text-red-500 text-sm font-bold">Cancelar</button>
+                       </div>
+
+                       {/* Bloco 1: Dados Básicos */}
+                       <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                          <h4 className="font-bold text-gray-800 mb-4 border-b pb-2">Dados Básicos</h4>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                             <AntroInput label="Peso (kg)" value={antroForm.peso} onChange={v => setAntroForm({...antroForm, peso: v})} />
+                             <AntroInput label="Altura (cm)" value={antroForm.altura} onChange={v => setAntroForm({...antroForm, altura: v})} />
+                             <AntroInput label="Alt. Sentado" value={antroForm.altura_sentado} onChange={v => setAntroForm({...antroForm, altura_sentado: v})} />
+                             <AntroInput label="Alt. Joelho" value={antroForm.altura_joelho} onChange={v => setAntroForm({...antroForm, altura_joelho: v})} />
+                          </div>
+                       </div>
+                       
+
+                       {/* Bloco 2: Dobras Cutâneas */}
+                       <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                          <div className="flex justify-between mb-4 border-b pb-2">
+                            <h4 className="font-bold text-gray-800">Dobras Cutâneas (mm)</h4>
+                            <select 
+                              className="bg-gray-50 border rounded-lg text-xs p-1"
+                              value={antroForm.formula_dobras}
+                              onChange={e => setAntroForm({...antroForm, formula_dobras: e.target.value})}
+                            >
+                              <option>Pollock 3</option>
+                              <option>Pollock 7</option>
+                              <option>Petroski</option>
+                              <option>Guedes</option>
+                              <option>Durnin</option>
+                              <option>Faulkner</option>
+                              <option>Nenhuma</option>
+                            </select>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
+                             <AntroInput label="Tricipital" value={antroForm.tricipital} onChange={v => setAntroForm({...antroForm, tricipital: v})} img="tricipital.jpg" />
+                             <AntroInput label="Bicipital" value={antroForm.bicipital} onChange={v => setAntroForm({...antroForm, bicipital: v})} img="bicipital.jpg" />
+                             <AntroInput label="Abdominal" value={antroForm.abdominal} onChange={v => setAntroForm({...antroForm, abdominal: v})} img="abdominal.jpg" />
+                             <AntroInput label="Subescapular" value={antroForm.subescapular} onChange={v => setAntroForm({...antroForm, subescapular: v})} img="subescapular.jpg" />
+                             <AntroInput label="Axilar Média" value={antroForm.axilar_media} onChange={v => setAntroForm({...antroForm, axilar_media: v})} img="axilar.jpg" />
+                             <AntroInput label="Coxa" value={antroForm.coxa} onChange={v => setAntroForm({...antroForm, coxa: v})} img="coxa.jpg" />
+                             <AntroInput label="Torácica" value={antroForm.toracica} onChange={v => setAntroForm({...antroForm, toracica: v})} img="toracica.jpg" />
+                             <AntroInput label="Supra-ilíaca" value={antroForm.suprailiaca} onChange={v => setAntroForm({...antroForm, suprailiaca: v})} img="suprailiaca.jpg" />
+                             <AntroInput label="Panturrilha" value={antroForm.panturrilha_dobra} onChange={v => setAntroForm({...antroForm, panturrilha_dobra: v})} img="panturrilha_dobra.jpg" />
+                             <AntroInput label="Supraespinhal" value={antroForm.supraespinhal} onChange={v => setAntroForm({...antroForm, supraespinhal: v})} img="supraespinhal.jpg" />
+                          </div>
+                       </div>
+                       
+                       {/* Bloco 3: Circunferências */}
+                       <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                          <h4 className="font-bold text-gray-800 mb-4 border-b pb-2">Circunferências (cm)</h4>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                             <AntroInput label="Pescoço" value={antroForm.pescoco} onChange={v => setAntroForm({...antroForm, pescoco: v})} img="pescoco.jpg" />
+                             <AntroInput label="Tórax" value={antroForm.torax} onChange={v => setAntroForm({...antroForm, torax: v})} img="torax.jpg" />
+                             <AntroInput label="Ombro" value={antroForm.ombro} onChange={v => setAntroForm({...antroForm, ombro: v})} img="ombro.jpg" />
+                             <AntroInput label="Cintura" value={antroForm.cintura} onChange={v => setAntroForm({...antroForm, cintura: v})} img="cintura.jpg" />
+                             <AntroInput label="Abdomen" value={antroForm.abdomen_circ} onChange={v => setAntroForm({...antroForm, abdomen_circ: v})} img="abdomen.jpg" />
+                             <AntroInput label="Quadril" value={antroForm.quadril} onChange={v => setAntroForm({...antroForm, quadril: v})} img="quadril.jpg" />
+                             <AntroInput label="Braço Relax." value={antroForm.braco_relax} onChange={v => setAntroForm({...antroForm, braco_relax: v})} img="braco_relaxado.jpg" />
+                             <AntroInput label="Braço Contr." value={antroForm.braco_contr} onChange={v => setAntroForm({...antroForm, braco_contr: v})} img="braco_contraido.jpg" />
+                             <AntroInput label="Antebraço" value={antroForm.antebraco} onChange={v => setAntroForm({...antroForm, antebraco: v})} img="antebraco.jpg" />
+                             <AntroInput label="Coxa Prox." value={antroForm.coxa_prox} onChange={v => setAntroForm({...antroForm, coxa_prox: v})} img="coxa_proximal.jpg" />
+                             <AntroInput label="Coxa Med." value={antroForm.coxa_med} onChange={v => setAntroForm({...antroForm, coxa_med: v})} img="coxa_media.jpg" />
+                             <AntroInput label="Coxa Dist." value={antroForm.coxa_dist} onChange={v => setAntroForm({...antroForm, coxa_dist: v})} img="coxa_distal.jpg" />
+                             <AntroInput label="Panturrilha" value={antroForm.panturrilha_circ} onChange={v => setAntroForm({...antroForm, panturrilha_circ: v})} img="panturrilha.jpg" />
+                          </div>
+                       </div>
+
+                       {/* Bloco 4: Diâmetro Ósseo */}
+                       <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                          <h4 className="font-bold text-gray-800 mb-4 border-b pb-2">Diâmetro Ósseo (cm)</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                             <AntroInput label="Úmero" value={antroForm.umero} onChange={v => setAntroForm({...antroForm, umero: v})} />
+                             <AntroInput label="Punho" value={antroForm.punho} onChange={v => setAntroForm({...antroForm, punho: v})} />
+                             <AntroInput label="Fêmur" value={antroForm.femur} onChange={v => setAntroForm({...antroForm, femur: v})} />
+                          </div>
+                       </div>
+
+                       {/* Bloco 5: Bioimpedância */}
+                       <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                          <h4 className="font-bold text-gray-800 mb-4 border-b pb-2">Balança de Bioimpedância</h4>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                             <AntroInput label="% Gordura" value={antroForm.perc_gordura_bio} onChange={v => setAntroForm({...antroForm, perc_gordura_bio: v})} />
+                             <AntroInput label="Massa Gorda" value={antroForm.massa_gorda_bio} onChange={v => setAntroForm({...antroForm, massa_gorda_bio: v})} />
+                             <AntroInput label="% Músculo" value={antroForm.perc_musculo_bio} onChange={v => setAntroForm({...antroForm, perc_musculo_bio: v})} />
+                             <AntroInput label="Massa Musc." value={antroForm.massa_musculo_bio} onChange={v => setAntroForm({...antroForm, massa_musculo_bio: v})} />
+                             <AntroInput label="Massa Livre" value={antroForm.massa_livre_gordura_bio} onChange={v => setAntroForm({...antroForm, massa_livre_gordura_bio: v})} />
+                             <AntroInput label="Peso Ósseo" value={antroForm.peso_osseo_bio} onChange={v => setAntroForm({...antroForm, peso_osseo_bio: v})} />
+                             <AntroInput label="Gord. Visceral" value={antroForm.gordura_visceral} onChange={v => setAntroForm({...antroForm, gordura_visceral: v})} />
+                             <AntroInput label="Água Corp." value={antroForm.agua_corporal} onChange={v => setAntroForm({...antroForm, agua_corporal: v})} />
+                             <AntroInput label="Idade Metab." value={antroForm.idade_metabolica} onChange={v => setAntroForm({...antroForm, idade_metabolica: v})} />
+                          </div>
+                       </div>
+                    </div>
+
+                    {/* SIDEBAR ANALÍTICA (STICKY) */}
+                    <div className="lg:col-span-4 space-y-6">
+                      <div className="bg-nutri-dark text-white p-6 rounded-3xl shadow-xl sticky top-6">
+                        <h4 className="font-bold text-lg mb-6 flex items-center gap-2 border-b border-white/10 pb-4"><Zap className="text-nutri-primary" /> Resultados Analíticos</h4>
+                        <div className="space-y-6 overflow-y-auto max-h-[70vh] pr-2 custom-scrollbar text-sm">
+                          
+                          {/* Análise de Pesos e Medidas */}
+                          <div>
+                            <p className="text-[10px] font-black uppercase text-nutri-primary mb-3">Pesos e Medidas</p>
+                            <ResultRow label="Peso Atual" value={`${antroForm.peso}kg`} />
+                            <ResultRow label="Altura Atual" value={`${antroForm.altura}cm`} />
+                            <ResultRow label="IMC" value={analise.imc} sub={analise.imcClasse} />
+                            <ResultRow label="Faixa Peso Ideal" value={analise.pesoIdeal} />
+                            <ResultRow label="RCQ" value={analise.rcq} sub={analise.riscoRcq} />
+                            <ResultRow label="CMB (cm)" value={analise.cmb} />
+                          </div>
+
+                          {/* Análise por Dobras */}
+                          <div className="pt-4 border-t border-white/10">
+                             <p className="text-[10px] font-black uppercase text-nutri-primary mb-3">Análises por Dobras</p>
+                             <ResultRow label="% Gordura (Brozek)" value={`${analise.percGordura}%`} />
+                             <ResultRow label="Peso de Gordura" value={`${analise.pesoGordura} kg`} />
+                             <ResultRow label="Peso Ósseo (Est.)" value={`${analise.pesoOsseo} kg`} />
+                             <ResultRow label="Massa Muscular" value={`${analise.massaMuscular} kg`} />
+                             <ResultRow label="Peso Residual" value={`${analise.pesoResidual} kg`} />
+                             <ResultRow label="Massa Livre Gord." value={`${analise.massaLivre} kg`} />
+                             <ResultRow label="Somatório Dobras" value={`${analise.soma} mm`} />
+                             <ResultRow label="Densidade Corp." value={analise.densidade} />
+                             <p className="text-[10px] text-gray-400 mt-2 text-right italic">Ref: {antroForm.formula_dobras}</p>
+                          </div>
+
+                          {/* Análise por Bioimpedância */}
+                          <div className="pt-4 border-t border-white/10">
+                             <p className="text-[10px] font-black uppercase text-nutri-primary mb-3">Bioimpedância</p>
+                             <ResultRow label="% Gordura" value={`${antroForm.perc_gordura_bio}%`} />
+                             <ResultRow label="Massa Muscular" value={`${antroForm.massa_musculo_bio} kg`} />
+                             <ResultRow label="Água Corporal" value={`${antroForm.agua_corporal}%`} />
+                             <ResultRow label="Idade Metab." value={antroForm.idade_metabolica} />
+                          </div>
+                        </div>
+
+                        <button 
+                          onClick={handleSaveAntro} 
+                          disabled={savingAntro}
+                          className="w-full mt-8 bg-nutri-primary text-white py-4 rounded-2xl font-bold hover:bg-white hover:text-nutri-primary transition-all shadow-lg flex justify-center items-center gap-2"
+                        >
+                          {savingAntro ? <Loader2 className="animate-spin" /> : <><Save size={20}/> Salvar Avaliação</>}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -385,6 +692,32 @@ export default function PerfilPacientePage() {
         </div>
       </main>
 
+      {/* MODAL ESCOLHA DE ANTROPOMETRIA */}
+      {isAntroChoiceOpen && (
+        <div className="fixed inset-0 z-[300] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 animate-in zoom-in duration-200">
+             <h2 className="text-xl font-bold mb-6 text-gray-800">Nova Avaliação</h2>
+             <div className="space-y-4">
+                <button 
+                  onClick={() => { setAntroType('adulto'); setIsAntroChoiceOpen(false); setShowAntroForm(true); }}
+                  className="w-full p-4 border-2 border-gray-100 rounded-2xl hover:border-nutri-primary hover:bg-nutri-primary/5 transition-all text-left group"
+                >
+                   <p className="font-bold text-gray-800 group-hover:text-nutri-primary">Adultos e Idosos</p>
+                   <p className="text-xs text-gray-400">Protocolos Pollock, Petroski e Bioimpedância</p>
+                </button>
+                <button 
+                  onClick={() => { setAntroType('crianca'); setIsAntroChoiceOpen(false); setShowAntroForm(true); }}
+                  className="w-full p-4 border-2 border-gray-100 rounded-2xl hover:border-nutri-primary hover:bg-nutri-primary/5 transition-all text-left group"
+                >
+                   <p className="font-bold text-gray-800 group-hover:text-nutri-primary">Crianças e Adolescentes</p>
+                   <p className="text-xs text-gray-400">Curvas de crescimento e desenvolvimento</p>
+                </button>
+             </div>
+             <button onClick={() => setIsAntroChoiceOpen(false)} className="w-full mt-6 py-3 text-gray-400 font-bold hover:text-red-500 transition-colors">Cancelar</button>
+          </div>
+        </div>
+      )}
+
       {/* MODAL ANAMNESE */}
       {isAnamneseModalOpen && (
         <div className="fixed inset-0 z-[200] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -481,5 +814,50 @@ function InfoField({ label, value, icon }: { label: string; value: string; icon?
 function ActionCard({ icon, label, color, onClick }: { icon: React.ReactNode; label: string; color: string; onClick: () => void }) {
   return (
     <button onClick={onClick} className={`flex flex-col items-center justify-center p-4 rounded-2xl shadow-sm hover:scale-105 transition-all h-32 w-full group ${color}`}><div className="bg-white/20 p-3 rounded-full mb-3 group-hover:bg-white/30 transition-all text-white/80">{icon}</div><span className="text-white font-bold text-sm text-center leading-tight">{label}</span></button>
+  );
+}
+
+// Componente Especial para Input com Tooltip de Imagem
+function AntroInput({ label, value, onChange, img }: { label: string; value: number; onChange: (v: number) => void; img?: string }) {
+  return (
+    <div className="space-y-1 relative group">
+       <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest flex items-center gap-1">
+         {label}
+         {img && <Info size={10} className="text-nutri-primary cursor-help" />}
+       </label>
+       <input 
+         type="number" 
+         className="w-full border-b border-gray-200 focus:border-nutri-primary outline-none py-1 font-bold text-gray-700 transition-all bg-transparent" 
+         value={value || ''} 
+         onChange={e => onChange(Number(e.target.value))} 
+       />
+       
+       {/* Tooltip com Imagem */}
+       {img && (
+         <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none animate-in fade-in zoom-in duration-200">
+            <div className="bg-white p-2 rounded-xl shadow-2xl border border-gray-100 w-48">
+               <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-1">
+                 {/* Substitua o src abaixo pelo caminho real das suas imagens */}
+                 <img src={`/assets/antropometria/${img}`} alt={label} className="w-full h-full object-cover" />
+               </div>
+               <p className="text-[10px] text-center text-gray-500 font-bold">Local de Medição</p>
+            </div>
+            {/* Seta do tooltip */}
+            <div className="w-3 h-3 bg-white border-r border-b border-gray-100 transform rotate-45 absolute -bottom-1.5 left-1/2 -translate-x-1/2 shadow-sm"></div>
+         </div>
+       )}
+    </div>
+  );
+}
+
+function ResultRow({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+  return (
+    <div className="flex justify-between items-center mb-3 group hover:bg-white/5 p-1 rounded transition-colors">
+      <div>
+        <p className="text-xs text-white/60 group-hover:text-white transition-colors">{label}</p>
+        {sub && <p className="text-[10px] text-nutri-primary font-bold uppercase">{sub}</p>}
+      </div>
+      <p className="font-bold text-white text-right">{value}</p>
+    </div>
   );
 }
