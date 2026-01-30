@@ -595,7 +595,7 @@ export default function PerfilPacientePage() {
                 <section>
                   <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Activity className="text-nutri-primary" /> Fluxo de Consulta</h3>
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                    <ActionCard icon={<CalendarPlus size={24}/>} label="Agendar" color="bg-blue-500" onClick={() => {}} />
+                    <ActionCard icon={<CalendarPlus size={24}/>} label="Agendar" color="bg-blue-500" onClick={() => router.push('/admin/consultorio/agendamentos')} />
                     <ActionCard icon={<FileText size={24}/>} label="Anamnese" color="bg-emerald-500" onClick={() => setActiveTab('anamnese')} />
                     <ActionCard icon={<FlaskConical size={24}/>} label="Exames" color="bg-amber-500" onClick={() => setActiveTab('exames')} />
                     <ActionCard icon={<Ruler size={24}/>} label="Antropometria" color="bg-teal-500" onClick={() => setActiveTab('antropometria')} />
