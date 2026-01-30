@@ -7,7 +7,7 @@ import {
   X, Copy, Edit, CalendarPlus, ClipboardList, Phone, Link as LinkIcon, 
   Loader2, ChevronRight, Save, Plus, Trash2, FileDown, ChevronDown, ChevronUp, Upload, File, Info,
   HeartPulse, Calculator, Dumbbell, Pencil, Search, Camera, Settings, PieChart as PieChartIcon, ArrowRight,
-  Printer // <--- Novo ícone importado
+  Printer, ArrowLeftRight // <--- Novo ícone para substituição
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { differenceInYears, parseISO, format, differenceInWeeks } from 'date-fns';
@@ -59,9 +59,10 @@ interface AlimentoTaco {
 interface ItemDieta {
   id: string;
   alimento: AlimentoTaco;
-  quantidade_unid: number; // <--- Novo campo: Quantidade em unidades (ex: 2 fatias)
-  quantidade_g: number;    // Peso em gramas (usado no cálculo)
+  quantidade_unid: number; 
+  quantidade_g: number;    
   medida_caseira?: string;
+  substitutos?: ItemDieta[]; // <--- Novo campo: Lista de substitutos (recursivo)
 }
 
 interface RefeicaoPlanejada {
@@ -139,6 +140,7 @@ export default function PerfilPacientePage() {
   const [refeicoes, setRefeicoes] = useState<RefeicaoPlanejada[]>([]);
   const [modalAlimentosOpen, setModalAlimentosOpen] = useState(false);
   const [refeicaoAlvoId, setRefeicaoAlvoId] = useState<string | null>(null);
+  const [itemAlvoId, setItemAlvoId] = useState<string | null>(null); // NOVO: Para saber se é substituto
   const [termoBusca, setTermoBusca] = useState('');
   const [resultadosBusca, setResultadosBusca] = useState<AlimentoTaco[]>([]);
   const [buscando, setBuscando] = useState(false);
@@ -302,17 +304,49 @@ export default function PerfilPacientePage() {
   // 3. Selecionar Alimento (Inicializa Qtd com 1 e Gramas com 100)
   const handleSelectAlimento = (alimento: AlimentoTaco) => {
     if (!refeicaoAlvoId) return;
+
     setRefeicoes(prev => prev.map(ref => {
       if (ref.id === refeicaoAlvoId) {
+        
+        // CASO 1: ADICIONAR SUBSTITUTO
+        if (itemAlvoId) {
+            return {
+                ...ref,
+                itens: ref.itens.map(item => {
+                    if (item.id === itemAlvoId) {
+                        return {
+                            ...item,
+                            substitutos: [...(item.substitutos || []), { 
+                                id: Math.random().toString(36).substr(2, 9), 
+                                alimento, 
+                                quantidade_g: 100, 
+                                quantidade_unid: 1 
+                            }]
+                        }
+                    }
+                    return item;
+                })
+            }
+        }
+
+        // CASO 2: ADICIONAR ITEM PRINCIPAL
         return {
           ...ref,
-          itens: [...ref.itens, { id: Math.random().toString(36).substr(2, 9), alimento, quantidade_g: 100, quantidade_unid: 1 }]
+          itens: [...ref.itens, { 
+              id: Math.random().toString(36).substr(2, 9), 
+              alimento, 
+              quantidade_g: 100, 
+              quantidade_unid: 1,
+              substitutos: []
+            }]
         };
       }
       return ref;
     }));
+    
     setModalAlimentosOpen(false);
     setTermoBusca('');
+    setItemAlvoId(null); // Reseta o alvo
   };
 
   // 4. Atualizar Item (Peso ou Qtd)
@@ -327,11 +361,45 @@ export default function PerfilPacientePage() {
       return ref;
     }));
   };
+  
+  // 4.1 Atualizar Substituto
+  const handleUpdateSubstituto = (refeicaoId: string, itemId: string, subId: string, field: 'quantidade_g' | 'quantidade_unid', value: number) => {
+     setRefeicoes(prev => prev.map(ref => {
+         if(ref.id !== refeicaoId) return ref;
+         return {
+             ...ref,
+             itens: ref.itens.map(item => {
+                 if(item.id !== itemId) return item;
+                 return {
+                     ...item,
+                     substitutos: item.substitutos?.map(sub => sub.id === subId ? {...sub, [field]: value} : sub)
+                 }
+             })
+         }
+     }));
+  };
 
   // 5. Remover Item
   const handleRemoveItem = (refeicaoId: string, itemId: string) => {
     setRefeicoes(prev => prev.map(ref => ref.id === refeicaoId ? { ...ref, itens: ref.itens.filter(i => i.id !== itemId) } : ref));
   };
+
+  // 5.1 Remover Substituto
+  const handleRemoveSubstituto = (refeicaoId: string, itemId: string, subId: string) => {
+     setRefeicoes(prev => prev.map(ref => {
+         if(ref.id !== refeicaoId) return ref;
+         return {
+             ...ref,
+             itens: ref.itens.map(item => {
+                 if(item.id !== itemId) return item;
+                 return {
+                     ...item,
+                     substitutos: item.substitutos?.filter(sub => sub.id !== subId)
+                 }
+             })
+         }
+     }));
+  }
 
   // 6. Calculadora de Totais
   const calculateTotals = (itens: ItemDieta[]) => {
@@ -403,10 +471,25 @@ export default function PerfilPacientePage() {
         y += 8;
       } else {
         ref.itens.forEach(item => {
-           // Formato: "2x Pão Francês (50g)"
+           // Item Principal
            const texto = `•  ${item.quantidade_unid > 0 ? item.quantidade_unid + 'x ' : ''}${item.alimento.nome} (${item.quantidade_g}g)`;
+           doc.setFont('helvetica', 'normal');
            doc.text(texto, 20, y);
-           y += 6;
+           y += 5;
+
+           // Substitutos
+           if (item.substitutos && item.substitutos.length > 0) {
+              item.substitutos.forEach(sub => {
+                  const textoSub = `    ou: ${sub.quantidade_unid > 0 ? sub.quantidade_unid + 'x ' : ''}${sub.alimento.nome} (${sub.quantidade_g}g)`;
+                  doc.setFont('helvetica', 'italic').setTextColor(100, 100, 100);
+                  doc.text(textoSub, 20, y);
+                  y += 5;
+              });
+              y += 2; // Espaçamento extra após lista de substitutos
+              doc.setTextColor(60, 60, 60); // Reseta cor
+           } else {
+              y += 2;
+           }
         });
       }
 
@@ -960,44 +1043,64 @@ export default function PerfilPacientePage() {
                                  {/* Conteúdo Expandido */}
                                  {ref.expandido && (
                                     <div className="p-4 bg-white animate-in slide-in-from-top-1">
-                                       <div className="space-y-2">
+                                       <div className="space-y-4">
                                           {ref.itens.length === 0 ? (
                                              <p className="text-center text-sm text-gray-400 italic py-4">Nenhum alimento adicionado.</p>
                                           ) : (
                                              ref.itens.map(item => (
-                                                <div key={item.id} className="grid grid-cols-12 gap-4 items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                                                   <div className="col-span-6">
-                                                      <p className="font-bold text-gray-700 text-sm">{item.alimento.nome}</p>
-                                                      <div className="flex gap-2 text-[10px] text-gray-400 font-bold uppercase"><span>{item.alimento.energia_kcal.toFixed(0)} kcal (100g)</span></div>
-                                                   </div>
-                                                   
-                                                   {/* Coluna Quantidade (Unidades) */}
-                                                   <div className="col-span-2 flex items-center">
-                                                      <span className="mr-1 text-[10px] text-gray-400 font-bold uppercase">QTD</span>
-                                                      <input 
-                                                         type="number" 
-                                                         className="w-full text-center bg-white border border-gray-200 rounded py-1 text-sm font-bold outline-none focus:border-nutri-primary"
-                                                         value={item.quantidade_unid || ''}
-                                                         placeholder="0"
-                                                         onChange={(e) => handleUpdateItem(ref.id, item.id, 'quantidade_unid', Number(e.target.value))}
-                                                      />
-                                                   </div>
+                                                <div key={item.id} className="relative group/item">
+                                                    {/* LINHA DO ALIMENTO PRINCIPAL */}
+                                                    <div className="grid grid-cols-12 gap-4 items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors border border-gray-100">
+                                                        <div className="col-span-5">
+                                                            <p className="font-bold text-gray-700 text-sm">{item.alimento.nome}</p>
+                                                            <div className="flex gap-2 text-[10px] text-gray-400 font-bold uppercase"><span>{item.alimento.energia_kcal.toFixed(0)} kcal (100g)</span></div>
+                                                        </div>
+                                                        
+                                                        <div className="col-span-2 flex items-center">
+                                                            <span className="mr-1 text-[10px] text-gray-400 font-bold uppercase">QTD</span>
+                                                            <input type="number" className="w-full text-center bg-white border border-gray-200 rounded py-1 text-sm font-bold outline-none focus:border-nutri-primary" value={item.quantidade_unid || ''} placeholder="0" onChange={(e) => handleUpdateItem(ref.id, item.id, 'quantidade_unid', Number(e.target.value))} />
+                                                        </div>
 
-                                                   {/* Coluna Gramas */}
-                                                   <div className="col-span-2 flex items-center">
-                                                      <input type="number" className="w-full text-center bg-white border border-gray-200 rounded py-1 text-sm font-bold outline-none focus:border-nutri-primary" value={item.quantidade_g} onChange={(e) => handleUpdateItem(ref.id, item.id, 'quantidade_g', Number(e.target.value))} />
-                                                      <span className="ml-1 text-xs text-gray-500 font-bold">g</span>
-                                                   </div>
-                                                   
-                                                   <div className="col-span-2 flex justify-end gap-2">
-                                                      <button onClick={() => handleRemoveItem(ref.id, item.id)} className="text-gray-300 hover:text-red-500"><Trash2 size={16}/></button>
-                                                   </div>
+                                                        <div className="col-span-2 flex items-center">
+                                                            <input type="number" className="w-full text-center bg-white border border-gray-200 rounded py-1 text-sm font-bold outline-none focus:border-nutri-primary" value={item.quantidade_g} onChange={(e) => handleUpdateItem(ref.id, item.id, 'quantidade_g', Number(e.target.value))} />
+                                                            <span className="ml-1 text-xs text-gray-500 font-bold">g</span>
+                                                        </div>
+                                                        
+                                                        <div className="col-span-3 flex justify-end gap-2">
+                                                            <button onClick={() => { setRefeicaoAlvoId(ref.id); setItemAlvoId(item.id); setModalAlimentosOpen(true); }} className="text-blue-300 hover:text-blue-500 p-1" title="Adicionar Substituto"><ArrowLeftRight size={16}/></button>
+                                                            <button onClick={() => handleRemoveItem(ref.id, item.id)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={16}/></button>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* LINHAS DOS SUBSTITUTOS */}
+                                                    {item.substitutos && item.substitutos.length > 0 && (
+                                                        <div className="ml-8 mt-2 space-y-2 border-l-2 border-dashed border-gray-200 pl-4">
+                                                            {item.substitutos.map(sub => (
+                                                                <div key={sub.id} className="grid grid-cols-12 gap-4 items-center p-2 bg-blue-50/50 rounded-lg border border-blue-50">
+                                                                    <div className="col-span-5 flex items-center gap-2">
+                                                                        <span className="text-xs font-bold text-blue-400 italic">Ou:</span>
+                                                                        <p className="font-medium text-gray-600 text-xs">{sub.alimento.nome}</p>
+                                                                    </div>
+                                                                    <div className="col-span-2 flex items-center">
+                                                                        <input type="number" className="w-full text-center bg-white/50 border border-gray-200 rounded py-0.5 text-xs font-bold outline-none focus:border-blue-400" value={sub.quantidade_unid || ''} placeholder="0" onChange={(e) => handleUpdateSubstituto(ref.id, item.id, sub.id, 'quantidade_unid', Number(e.target.value))} />
+                                                                    </div>
+                                                                    <div className="col-span-2 flex items-center">
+                                                                        <input type="number" className="w-full text-center bg-white/50 border border-gray-200 rounded py-0.5 text-xs font-bold outline-none focus:border-blue-400" value={sub.quantidade_g} onChange={(e) => handleUpdateSubstituto(ref.id, item.id, sub.id, 'quantidade_g', Number(e.target.value))} />
+                                                                        <span className="ml-1 text-[10px] text-gray-400 font-bold">g</span>
+                                                                    </div>
+                                                                    <div className="col-span-3 flex justify-end">
+                                                                        <button onClick={() => handleRemoveSubstituto(ref.id, item.id, sub.id)} className="text-gray-300 hover:text-red-400"><X size={14}/></button>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                 </div>
                                              ))
                                           )}
                                        </div>
                                        <div className="mt-4 flex gap-3 border-t border-gray-100 pt-4">
-                                          <button onClick={() => { setRefeicaoAlvoId(ref.id); setModalAlimentosOpen(true); }} className="flex items-center gap-2 text-sm font-bold text-nutri-primary hover:bg-nutri-primary/10 px-4 py-2 rounded-lg transition-colors"><Plus size={16}/> Ver Alimentos / Adicionar</button>
+                                          <button onClick={() => { setRefeicaoAlvoId(ref.id); setItemAlvoId(null); setModalAlimentosOpen(true); }} className="flex items-center gap-2 text-sm font-bold text-nutri-primary hover:bg-nutri-primary/10 px-4 py-2 rounded-lg transition-colors"><Plus size={16}/> Ver Alimentos / Adicionar</button>
                                        </div>
                                        <textarea 
                                           className="w-full mt-3 bg-yellow-50 border border-yellow-100 rounded-lg p-3 text-sm text-gray-600 placeholder-gray-400 outline-none focus:border-yellow-300"
@@ -1065,7 +1168,7 @@ export default function PerfilPacientePage() {
                   <div className="fixed inset-0 z-[200] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
                      <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[85vh] animate-in zoom-in duration-200">
                         <div className="p-6 border-b flex justify-between items-center bg-gray-50 rounded-t-2xl">
-                           <h2 className="text-xl font-bold flex items-center gap-2"><Search className="text-nutri-primary"/> Buscar Alimento</h2>
+                           <h2 className="text-xl font-bold flex items-center gap-2"><Search className="text-nutri-primary"/> {itemAlvoId ? 'Buscar Substituto' : 'Buscar Alimento'}</h2>
                            <button onClick={() => setModalAlimentosOpen(false)}><X size={24}/></button>
                         </div>
                         <div className="p-6 border-b border-gray-100">
