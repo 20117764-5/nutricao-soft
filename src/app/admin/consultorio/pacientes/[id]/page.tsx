@@ -6,8 +6,7 @@ import {
   User, Activity, FileText, FlaskConical, Ruler, Baby, Zap, Utensils, 
   X, Copy, Edit, CalendarPlus, ClipboardList, Phone, Link as LinkIcon, 
   Loader2, ChevronRight, Save, Plus, Trash2, FileDown, ChevronDown, ChevronUp, Upload, File, Info,
-  HeartPulse, Calculator, Dumbbell, Pencil, Search, Camera, Settings, PieChart as PieChartIcon, ArrowRight,
-  Printer, ArrowLeftRight // <--- Novo ícone para substituição
+  HeartPulse, Calculator, Dumbbell, Pencil, Search, PieChart as PieChartIcon, ArrowLeftRight, Printer
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { differenceInYears, parseISO, format, differenceInWeeks } from 'date-fns';
@@ -59,10 +58,11 @@ interface AlimentoTaco {
 interface ItemDieta {
   id: string;
   alimento: AlimentoTaco;
+  nome_personalizado: string;
   quantidade_unid: number; 
   quantidade_g: number;    
   medida_caseira?: string;
-  substitutos?: ItemDieta[]; // <--- Novo campo: Lista de substitutos (recursivo)
+  substitutos?: ItemDieta[];
 }
 
 interface RefeicaoPlanejada {
@@ -73,6 +73,14 @@ interface RefeicaoPlanejada {
   itens: ItemDieta[];
   observacoes?: string;
   expandido: boolean;
+}
+
+interface PlanejamentoSalvo {
+  id: string;
+  paciente_id: string;
+  titulo: string;
+  refeicoes: RefeicaoPlanejada[];
+  created_at: string;
 }
 
 type TabOption = 'perfil' | 'historico' | 'anamnese' | 'exames' | 'antropometria' | 'gestacional' | 'calculo' | 'planejamento';
@@ -136,14 +144,18 @@ export default function PerfilPacientePage() {
   const [calcForm, setCalcForm] = useState({ peso: 0, altura: 0, idade: 30, sexo: 'masculino' as 'masculino' | 'feminino', mlg: 0, formula: 'Harris-Benedict (1984)', fator_atividade: 1.200, ajuste_met: 0, ajuste_venta: 0, adicional_gestante: false });
 
   // --- ESTADOS PLANEJAMENTO ALIMENTAR ---
+  const [listaPlanejamentos, setListaPlanejamentos] = useState<PlanejamentoSalvo[]>([]);
   const [modoPlanejamento, setModoPlanejamento] = useState(false);
+  const [planejamentoAtualId, setPlanejamentoAtualId] = useState<string | null>(null);
+  const [tituloPlanejamento, setTituloPlanejamento] = useState('Dieta Personalizada');
   const [refeicoes, setRefeicoes] = useState<RefeicaoPlanejada[]>([]);
   const [modalAlimentosOpen, setModalAlimentosOpen] = useState(false);
   const [refeicaoAlvoId, setRefeicaoAlvoId] = useState<string | null>(null);
-  const [itemAlvoId, setItemAlvoId] = useState<string | null>(null); // NOVO: Para saber se é substituto
+  const [itemAlvoId, setItemAlvoId] = useState<string | null>(null);
   const [termoBusca, setTermoBusca] = useState('');
   const [resultadosBusca, setResultadosBusca] = useState<AlimentoTaco[]>([]);
   const [buscando, setBuscando] = useState(false);
+  const [savingPlanejamento, setSavingPlanejamento] = useState(false);
 
   // --- ESTADOS AUXILIARES ---
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -214,6 +226,12 @@ export default function PerfilPacientePage() {
     if (activeTab === 'calculo') {
       const { data } = await supabase.from('pacientes_calculo').select('*').eq('paciente_id', id).order('data_calculo', { ascending: false });
       setListaCalculos(data as CalculoData[] || []);
+    }
+    if (activeTab === 'planejamento') {
+      // Busca dados da tabela pacientes_planejamento
+      const { data, error } = await supabase.from('pacientes_planejamento').select('*').eq('paciente_id', id).order('created_at', { ascending: false });
+      if (error) console.error("Erro ao buscar planejamentos:", error);
+      setListaPlanejamentos(data as PlanejamentoSalvo[] || []);
     }
 
   }, [activeTab, id, paciente]);
@@ -301,7 +319,7 @@ export default function PerfilPacientePage() {
     return () => clearTimeout(delayDebounceFn);
   }, [termoBusca]);
 
-  // 3. Selecionar Alimento (Inicializa Qtd com 1 e Gramas com 100)
+  // 3. Selecionar Alimento
   const handleSelectAlimento = (alimento: AlimentoTaco) => {
     if (!refeicaoAlvoId) return;
 
@@ -319,6 +337,7 @@ export default function PerfilPacientePage() {
                             substitutos: [...(item.substitutos || []), { 
                                 id: Math.random().toString(36).substr(2, 9), 
                                 alimento, 
+                                nome_personalizado: alimento.nome, 
                                 quantidade_g: 100, 
                                 quantidade_unid: 1 
                             }]
@@ -335,6 +354,7 @@ export default function PerfilPacientePage() {
           itens: [...ref.itens, { 
               id: Math.random().toString(36).substr(2, 9), 
               alimento, 
+              nome_personalizado: alimento.nome, 
               quantidade_g: 100, 
               quantidade_unid: 1,
               substitutos: []
@@ -346,11 +366,11 @@ export default function PerfilPacientePage() {
     
     setModalAlimentosOpen(false);
     setTermoBusca('');
-    setItemAlvoId(null); // Reseta o alvo
+    setItemAlvoId(null);
   };
 
-  // 4. Atualizar Item (Peso ou Qtd)
-  const handleUpdateItem = (refeicaoId: string, itemId: string, field: 'quantidade_g' | 'quantidade_unid', value: number) => {
+  // 4. Atualizar Item
+  const handleUpdateItem = (refeicaoId: string, itemId: string, field: 'quantidade_g' | 'quantidade_unid' | 'nome_personalizado', value: number | string) => {
     setRefeicoes(prev => prev.map(ref => {
       if (ref.id === refeicaoId) {
         return {
@@ -363,7 +383,7 @@ export default function PerfilPacientePage() {
   };
   
   // 4.1 Atualizar Substituto
-  const handleUpdateSubstituto = (refeicaoId: string, itemId: string, subId: string, field: 'quantidade_g' | 'quantidade_unid', value: number) => {
+  const handleUpdateSubstituto = (refeicaoId: string, itemId: string, subId: string, field: 'quantidade_g' | 'quantidade_unid' | 'nome_personalizado', value: number | string) => {
      setRefeicoes(prev => prev.map(ref => {
          if(ref.id !== refeicaoId) return ref;
          return {
@@ -415,7 +435,7 @@ export default function PerfilPacientePage() {
     }, { kcal: 0, proteina: 0, carboidrato: 0, lipideos: 0, fibras: 0 });
   };
 
-  // 7. Totalizador do Dia (Memo)
+  // 7. Totalizador do Dia
   const totaisDiarios = useMemo(() => {
     const total = { kcal: 0, proteina: 0, carboidrato: 0, lipideos: 0, fibras: 0 };
     refeicoes.forEach(ref => {
@@ -431,13 +451,63 @@ export default function PerfilPacientePage() {
 
   const COLORS = { protein: '#EF4444', carb: '#3B82F6', fat: '#EAB308' };
 
-  // 8. Exportar para PDF (NOVO)
+  // 8. SALVAR PLANEJAMENTO
+  const handleSavePlanejamento = async () => {
+     setSavingPlanejamento(true);
+     try {
+        const payload = {
+            paciente_id: id,
+            titulo: tituloPlanejamento,
+            refeicoes: refeicoes
+        };
+
+        let resultError = null;
+
+        if (planejamentoAtualId) {
+            // Atualizar existente
+            const { error } = await supabase.from('pacientes_planejamento').update(payload).eq('id', planejamentoAtualId);
+            resultError = error;
+        } else {
+            // Criar novo
+            const { error } = await supabase.from('pacientes_planejamento').insert(payload);
+            resultError = error;
+        }
+
+        if(resultError) throw resultError;
+        
+        alert('Planejamento salvo com sucesso!');
+        setModoPlanejamento(false);
+        fetchDataAbas(); // Recarrega a lista
+     } catch (err) {
+        console.error("Erro completo ao salvar planejamento:", err);
+        alert('Erro ao salvar planejamento. Verifique o console para detalhes ou se a tabela existe.');
+     } finally {
+        setSavingPlanejamento(false);
+     }
+  };
+
+  // 9. CARREGAR PLANEJAMENTO PARA EDIÇÃO
+  const handleEditPlanejamento = (plan: PlanejamentoSalvo) => {
+      setRefeicoes(plan.refeicoes);
+      setTituloPlanejamento(plan.titulo || 'Dieta Personalizada');
+      setPlanejamentoAtualId(plan.id);
+      setModoPlanejamento(true);
+  };
+  
+  const handleDeletePlanejamento = async (idPlan: string) => {
+     if(!confirm("Excluir este planejamento?")) return;
+     try {
+         await supabase.from('pacientes_planejamento').delete().eq('id', idPlan);
+         fetchDataAbas();
+     } catch(err) { console.error(err); }
+  };
+
+  // 10. Exportar para PDF
   const handleExportarPlanejamentoPDF = () => {
     if (!paciente) return;
     const doc = new jsPDF();
-    const primaryColor = [34, 197, 94]; // Verde Nutri
+    const primaryColor = [34, 197, 94];
 
-    // Cabeçalho
     doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
     doc.rect(0, 0, 210, 30, 'F');
     doc.setTextColor(255, 255, 255);
@@ -449,51 +519,45 @@ export default function PerfilPacientePage() {
     doc.text(`DATA: ${format(new Date(), 'dd/MM/yyyy')}`, 150, 40);
 
     let y = 55;
-
-    // Loop Refeições
     const refeicoesOrdenadas = [...refeicoes].sort((a,b) => a.horario.localeCompare(b.horario));
     
     refeicoesOrdenadas.forEach((ref) => {
-      // Verifica quebra de página
       if (y > 250) { doc.addPage(); y = 20; }
 
-      // Título Refeição
       doc.setFillColor(240, 240, 240);
       doc.rect(15, y - 6, 180, 10, 'F');
       doc.setFontSize(12).setFont('helvetica', 'bold').setTextColor(34, 197, 94);
       doc.text(`${ref.horario} - ${ref.nome.toUpperCase()}`, 20, y);
       y += 10;
 
-      // Itens
       doc.setFontSize(10).setFont('helvetica', 'normal').setTextColor(60, 60, 60);
       if (ref.itens.length === 0) {
         doc.text("— NENHUM ALIMENTO REGISTRADO —", 25, y);
         y += 8;
       } else {
         ref.itens.forEach(item => {
-           // Item Principal
-           const texto = `•  ${item.quantidade_unid > 0 ? item.quantidade_unid + 'x ' : ''}${item.alimento.nome} (${item.quantidade_g}g)`;
+           const nomeExibicao = item.nome_personalizado || item.alimento.nome;
+           const texto = `•  ${item.quantidade_unid > 0 ? item.quantidade_unid + 'x ' : ''}${nomeExibicao} (${item.quantidade_g}g)`;
            doc.setFont('helvetica', 'normal');
            doc.text(texto, 20, y);
            y += 5;
 
-           // Substitutos
            if (item.substitutos && item.substitutos.length > 0) {
               item.substitutos.forEach(sub => {
-                  const textoSub = `    ou: ${sub.quantidade_unid > 0 ? sub.quantidade_unid + 'x ' : ''}${sub.alimento.nome} (${sub.quantidade_g}g)`;
+                  const nomeSub = sub.nome_personalizado || sub.alimento.nome;
+                  const textoSub = `    ou: ${sub.quantidade_unid > 0 ? sub.quantidade_unid + 'x ' : ''}${nomeSub} (${sub.quantidade_g}g)`;
                   doc.setFont('helvetica', 'italic').setTextColor(100, 100, 100);
                   doc.text(textoSub, 20, y);
                   y += 5;
               });
-              y += 2; // Espaçamento extra após lista de substitutos
-              doc.setTextColor(60, 60, 60); // Reseta cor
+              y += 2;
+              doc.setTextColor(60, 60, 60);
            } else {
               y += 2;
            }
         });
       }
 
-      // Observações
       if (ref.observacoes) {
          y += 2;
          doc.setFontSize(9).setFont('helvetica', 'italic').setTextColor(100, 100, 100);
@@ -503,10 +567,9 @@ export default function PerfilPacientePage() {
       } else {
          y += 4;
       }
-      y += 4; // Espaço entre refeições
+      y += 4;
     });
 
-    // Rodapé Totais
     if (y > 230) { doc.addPage(); y = 30; }
     y += 10;
     doc.setDrawColor(200, 200, 200).line(20, y, 190, y);
@@ -531,7 +594,51 @@ export default function PerfilPacientePage() {
   const handleUploadExame = async () => { const file = fileInputRef.current?.files?.[0]; if (!file || !nomeNovoExame) return alert('Selecione arquivo e nome.'); setUploading(true); try { const fileName = `${id}/${Date.now()}_${file.name}`; await supabase.storage.from('exames').upload(fileName, file); const { data: { publicUrl } } = supabase.storage.from('exames').getPublicUrl(fileName); await supabase.from('pacientes_exames').insert({ paciente_id: id, nome_exame: nomeNovoExame, arquivo_url: publicUrl }); setIsRegistrarModalOpen(false); setNomeNovoExame(''); fetchDataAbas(); } finally { setUploading(false); } };
   const handleDeleteExame = async (exameId: string) => { if (!confirm('Excluir este exame?')) return; await supabase.from('pacientes_exames').delete().eq('id', exameId); fetchDataAbas(); };
   const exportarRespostaParaPDF = (item: RespostaUnificada) => { if (!paciente) return; const doc = new jsPDF(); let y = 20; doc.setFontSize(16).setTextColor(34, 197, 94).text(item.titulo, 20, y); y += 15; Object.entries(item.conteudo).forEach(([p, r]) => { if (y > 270) { doc.addPage(); y = 20; } doc.setFont('helvetica', 'bold').text(doc.splitTextToSize(p.toUpperCase(), 170), 20, y); y += 7; doc.setFont('helvetica', 'normal').text(doc.splitTextToSize(r || '—', 170), 20, y); y += 12; }); doc.save(`${item.titulo}_${paciente.nome}.pdf`); };
-  const handleSaveAntro = async () => { setSavingAntro(true); try { const payload = { ...antroForm, paciente_id: id, tipo_avaliacao: antroType }; if (antroForm.id) { await supabase.from('antropometria').update(payload).eq('id', antroForm.id); } else { await supabase.from('antropometria').insert(payload); } setShowAntroForm(false); fetchDataAbas(); } catch (error) { console.error(error); alert('Erro ao salvar avaliação.'); } finally { setSavingAntro(false); } };
+  
+  // FIX: SALVAR E ATUALIZAR LISTA DE ANTRO MANUALMENTE
+  const handleSaveAntro = async () => { 
+    setSavingAntro(true); 
+    try { 
+      const payload = { ...antroForm, paciente_id: id, tipo_avaliacao: antroType }; 
+      let resultError = null;
+      if (antroForm.id) { 
+        const { error } = await supabase.from('antropometria').update(payload).eq('id', antroForm.id); 
+        resultError = error;
+      } else { 
+        const { error } = await supabase.from('antropometria').insert(payload); 
+        resultError = error;
+      } 
+      
+      if(resultError) throw resultError;
+
+      // Força recarregamento manual
+      const { data } = await supabase.from('antropometria').select('*').eq('paciente_id', id).order('created_at', { ascending: false });
+      setAvaliacoesAntro(data as AntropometriaData[] || []);
+      
+      setShowAntroForm(false); 
+      // fetchDataAbas(); // Removido para evitar race condition, o código acima já atualiza
+    } catch (error) { 
+      console.error("Erro antro:", error); 
+      alert('Erro ao salvar avaliação. Verifique o console.'); 
+    } finally { 
+      setSavingAntro(false); 
+    } 
+  };
+
+  // --- NOVA FUNÇÃO DE EXCLUIR ANTROPOMETRIA ---
+  const handleDeleteAntro = async (idAntro: string) => {
+    if (!confirm("Tem certeza que deseja excluir esta avaliação? Esta ação não pode ser desfeita.")) return;
+    try {
+      const { error } = await supabase.from('antropometria').delete().eq('id', idAntro);
+      if (error) throw error;
+      // Atualiza estado local removendo o item excluído
+      setAvaliacoesAntro(prev => prev.filter(a => a.id !== idAntro));
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao excluir avaliação.');
+    }
+  };
+  
   const handleStartGestacional = () => { setIsGestacionalSetupOpen(true); };
   const handleSaveSetupGestacional = async () => { if (!setupGesta.dum || setupGesta.peso_pre <= 0) return alert('Preencha os dados.'); const semanas = differenceInWeeks(new Date(), parseISO(setupGesta.dum)); const semanaInicial = semanas > 0 ? semanas : 1; try { const payload = { paciente_id: id, peso_pre_gestacional: setupGesta.peso_pre, altura: setupGesta.altura, dum: setupGesta.dum, tipo_gestacao: setupGesta.tipo, registros: [] }; const { error } = await supabase.from('pacientes_gestacional').insert(payload); if (error) throw error; setSemanaSelecionada(semanaInicial); setIsGestacionalSetupOpen(false); fetchDataAbas(); } catch (err) { console.error(err); alert('Erro ao iniciar acompanhamento.'); } };
   const handleSaveRegistroGestacional = async () => { if (!gestacionalData?.id) return; setSavingGestacional(true); const novoRegistro: RegistroGestacional = { semana: semanaSelecionada, peso_atual: formGestacional.peso, dobra_tricipital: formGestacional.tricipital, circ_braquial: formGestacional.braquial, data_registro: new Date().toISOString() }; const registrosAntigos = registrosGestacional.filter(r => r.semana !== semanaSelecionada); const novosRegistros = [...registrosAntigos, novoRegistro]; try { const { error } = await supabase .from('pacientes_gestacional') .update({ registros: novosRegistros }) .eq('id', gestacionalData.id); if (error) throw error; setRegistrosGestacional(novosRegistros); alert('Dados da semana salvos com sucesso!'); } catch (err) { console.error(err); alert('Erro ao salvar dados.'); } finally { setSavingGestacional(false); } };
@@ -719,18 +826,41 @@ export default function PerfilPacientePage() {
                       <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Ruler className="text-nutri-primary" /> Avaliações Antropométricas</h3>
                       <button onClick={() => setIsAntroChoiceOpen(true)} className="bg-nutri-dark text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:bg-black transition-all"><Plus size={18} /> Nova Avaliação</button>
                     </div>
+                    
                     {/* Lista de Avaliações Salvas */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {avaliacoesAntro.map(av => (
-                        <div key={av.id} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:border-nutri-primary cursor-pointer transition-all" onClick={() => { setAntroForm(av); setShowAntroForm(true); }}>
-                           <p className="font-bold text-gray-800 mb-1">{av.created_at ? format(parseISO(av.created_at), 'dd/MM/yyyy') : 'Sem data'}</p>
-                           <span className="text-xs uppercase font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">{av.tipo_avaliacao}</span>
-                           <div className="mt-3 text-sm text-gray-600">
-                              <p>Peso: {av.peso}kg</p>
-                              <p>IMC: {(av.peso / (av.altura/100)**2).toFixed(2)}</p>
-                           </div>
+                      {avaliacoesAntro.length === 0 ? (
+                        <div className="col-span-full py-12 text-center text-gray-400">
+                           <Ruler size={48} className="mx-auto mb-3 opacity-20"/>
+                           <p>Nenhuma avaliação registrada.</p>
                         </div>
-                      ))}
+                      ) : (
+                        avaliacoesAntro.map(av => (
+                          <div key={av.id} className="relative group bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:border-nutri-primary cursor-pointer transition-all">
+                             {/* Área clicável para editar */}
+                             <div onClick={() => { setAntroForm(av); setShowAntroForm(true); }}>
+                                <div className="flex justify-between items-start mb-2">
+                                   <p className="font-bold text-gray-800 text-lg">{av.created_at ? format(parseISO(av.created_at), 'dd/MM/yyyy') : 'Sem data'}</p>
+                                   <span className="text-[10px] uppercase font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded tracking-wider">{av.tipo_avaliacao}</span>
+                                </div>
+                                <div className="space-y-1 text-sm text-gray-600">
+                                   <div className="flex justify-between"><span>Peso:</span> <span className="font-bold">{av.peso} kg</span></div>
+                                   <div className="flex justify-between"><span>Altura:</span> <span className="font-bold">{av.altura} cm</span></div>
+                                   <div className="flex justify-between"><span>IMC:</span> <span className="font-bold text-nutri-primary">{(av.peso / (av.altura/100)**2).toFixed(1)}</span></div>
+                                </div>
+                             </div>
+
+                             {/* Botão de Excluir */}
+                             <button 
+                                onClick={(e) => { e.stopPropagation(); if(av.id) handleDeleteAntro(av.id); }}
+                                className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                title="Excluir Avaliação"
+                             >
+                                <Trash2 size={16} />
+                             </button>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </>
                 ) : (
@@ -991,26 +1121,70 @@ export default function PerfilPacientePage() {
             {activeTab === 'planejamento' && (
               <div className="space-y-6 animate-in slide-in-from-bottom-2">
                 
-                {/* Tela Inicial ou Tela de Edição */}
-                {!modoPlanejamento && refeicoes.length === 0 ? (
-                   <div className="flex flex-col items-center justify-center h-[50vh] bg-white rounded-3xl border border-gray-200 shadow-sm p-8 text-center">
-                      <div className="bg-green-50 p-6 rounded-full mb-6 animate-bounce"><Utensils size={48} className="text-nutri-primary"/></div>
-                      <h2 className="text-2xl font-bold text-gray-800 mb-2">Planejamento Alimentar</h2>
-                      <p className="text-gray-500 mb-8 max-w-md">Crie dietas personalizadas, calcule macros automaticamente e gere cardápios completos.</p>
-                      <button onClick={() => { setModoPlanejamento(true); handleAddRefeicao(); }} className="bg-nutri-dark text-white px-8 py-4 rounded-xl font-bold text-lg shadow-xl transition-all flex items-center gap-2 hover:bg-black">
-                        <Plus size={24}/> Nova prescrição alimentar
-                      </button>
+                {/* Tela Inicial (Lista de Planejamentos) */}
+                {!modoPlanejamento && (
+                   <div className="space-y-6">
+                      <div className="flex justify-between items-center bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                          <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Utensils className="text-nutri-primary" /> Histórico de Dietas</h3>
+                          <button onClick={() => { setModoPlanejamento(true); setPlanejamentoAtualId(null); setTituloPlanejamento('Nova Dieta'); handleAddRefeicao(); }} className="bg-nutri-dark text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:bg-black transition-all">
+                             <Plus size={18} /> Nova Prescrição
+                          </button>
+                      </div>
+
+                      {listaPlanejamentos.length === 0 ? (
+                         <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-gray-200 border-dashed text-center">
+                            <div className="bg-gray-50 p-6 rounded-full mb-4"><Utensils size={32} className="text-gray-300"/></div>
+                            <p className="text-gray-400 font-bold">Nenhuma dieta criada para este paciente.</p>
+                         </div>
+                      ) : (
+                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {listaPlanejamentos.map(plan => (
+                               <div key={plan.id} className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm hover:border-nutri-primary transition-all group cursor-pointer" onClick={() => handleEditPlanejamento(plan)}>
+                                   <div className="flex justify-between items-start mb-4">
+                                      <div>
+                                         <p className="font-bold text-gray-800 text-lg truncate w-40">{plan.titulo}</p>
+                                         <p className="text-xs text-gray-500 font-bold">{format(parseISO(plan.created_at), 'dd/MM/yyyy')}</p>
+                                      </div>
+                                      <div className="bg-green-50 text-green-600 p-2 rounded-lg"><FileText size={20}/></div>
+                                   </div>
+                                   <div className="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                                      <button onClick={(e) => { e.stopPropagation(); handleDeletePlanejamento(plan.id); }} className="text-xs text-red-500 font-bold hover:underline flex items-center gap-1"><Trash2 size={12}/> Excluir</button>
+                                   </div>
+                               </div>
+                            ))}
+                         </div>
+                      )}
                    </div>
-                ) : (
+                )}
+
+                {/* Tela de Edição */}
+                {modoPlanejamento && (
                   <>
+                    <div className="flex items-center gap-4 mb-2">
+                        <button onClick={() => { setModoPlanejamento(false); fetchDataAbas(); }} className="text-gray-400 hover:text-gray-600 font-bold text-sm flex items-center gap-1"><ChevronRight className="rotate-180" size={16}/> Voltar</button>
+                        <div className="h-6 w-[1px] bg-gray-300"></div>
+                        <span className="text-gray-400 font-bold text-sm">Editor de Dieta</span>
+                    </div>
+
                     {/* TELA 1: ROTINA DO PACIENTE */}
                     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                       <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                        <h3 className="font-bold text-xl text-gray-800 flex items-center gap-2"><ClipboardList className="text-nutri-primary"/> Rotina do Paciente</h3>
+                        <div className="flex items-center gap-4 flex-1">
+                           <div className="bg-nutri-primary/10 p-2 rounded-lg text-nutri-primary"><ClipboardList size={20}/></div>
+                           <input 
+                              className="font-bold text-xl text-gray-800 bg-transparent outline-none placeholder-gray-400 w-full"
+                              value={tituloPlanejamento}
+                              onChange={e => setTituloPlanejamento(e.target.value)}
+                              placeholder="Título da Dieta (ex: Hipertrofia)"
+                           />
+                        </div>
                         <div className="flex gap-2">
-                           <button onClick={handleExportarPlanejamentoPDF} className="bg-nutri-primary text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-green-600 transition-colors mr-4"><Printer size={16}/> Baixar PDF</button>
-                           <button onClick={() => setRefeicoes(prev => prev.map(r => ({...r, expandido: true})))} className="text-xs font-bold text-gray-500 hover:text-nutri-primary">Expandir tudo</button>
-                           <button onClick={() => setRefeicoes(prev => prev.map(r => ({...r, expandido: false})))} className="text-xs font-bold text-gray-500 hover:text-nutri-primary">Recolher tudo</button>
+                           <button onClick={handleSavePlanejamento} disabled={savingPlanejamento} className="bg-nutri-dark text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-black transition-colors mr-2">
+                              {savingPlanejamento ? <Loader2 className="animate-spin" size={16}/> : <><Save size={16}/> Salvar Dieta</>}
+                           </button>
+                           <button onClick={handleExportarPlanejamentoPDF} className="bg-nutri-primary text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-green-600 transition-colors mr-4"><Printer size={16}/> PDF</button>
+                           <button onClick={() => setRefeicoes(prev => prev.map(r => ({...r, expandido: true})))} className="text-xs font-bold text-gray-500 hover:text-nutri-primary">Expandir</button>
+                           <button onClick={() => setRefeicoes(prev => prev.map(r => ({...r, expandido: false})))} className="text-xs font-bold text-gray-500 hover:text-nutri-primary">Recolher</button>
                         </div>
                       </div>
                       
@@ -1052,8 +1226,14 @@ export default function PerfilPacientePage() {
                                                     {/* LINHA DO ALIMENTO PRINCIPAL */}
                                                     <div className="grid grid-cols-12 gap-4 items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors border border-gray-100">
                                                         <div className="col-span-5">
-                                                            <p className="font-bold text-gray-700 text-sm">{item.alimento.nome}</p>
-                                                            <div className="flex gap-2 text-[10px] text-gray-400 font-bold uppercase"><span>{item.alimento.energia_kcal.toFixed(0)} kcal (100g)</span></div>
+                                                            {/* NOME EDITÁVEL */}
+                                                            <input 
+                                                                className="font-bold text-gray-700 text-sm bg-transparent outline-none w-full placeholder-gray-400 focus:text-nutri-primary" 
+                                                                value={item.nome_personalizado || item.alimento.nome}
+                                                                onChange={(e) => handleUpdateItem(ref.id, item.id, 'nome_personalizado', e.target.value)}
+                                                                placeholder="Nome do alimento"
+                                                            />
+                                                            <div className="flex gap-2 text-[10px] text-gray-400 font-bold uppercase mt-1"><span>{item.alimento.energia_kcal.toFixed(0)} kcal (100g)</span></div>
                                                         </div>
                                                         
                                                         <div className="col-span-2 flex items-center">
@@ -1079,7 +1259,11 @@ export default function PerfilPacientePage() {
                                                                 <div key={sub.id} className="grid grid-cols-12 gap-4 items-center p-2 bg-blue-50/50 rounded-lg border border-blue-50">
                                                                     <div className="col-span-5 flex items-center gap-2">
                                                                         <span className="text-xs font-bold text-blue-400 italic">Ou:</span>
-                                                                        <p className="font-medium text-gray-600 text-xs">{sub.alimento.nome}</p>
+                                                                        <input 
+                                                                            className="font-medium text-gray-600 text-xs bg-transparent outline-none w-full"
+                                                                            value={sub.nome_personalizado || sub.alimento.nome}
+                                                                            onChange={(e) => handleUpdateSubstituto(ref.id, item.id, sub.id, 'nome_personalizado', e.target.value)}
+                                                                        />
                                                                     </div>
                                                                     <div className="col-span-2 flex items-center">
                                                                         <input type="number" className="w-full text-center bg-white/50 border border-gray-200 rounded py-0.5 text-xs font-bold outline-none focus:border-blue-400" value={sub.quantidade_unid || ''} placeholder="0" onChange={(e) => handleUpdateSubstituto(ref.id, item.id, sub.id, 'quantidade_unid', Number(e.target.value))} />
@@ -1226,7 +1410,10 @@ export default function PerfilPacientePage() {
         </div>
       )}
 
-      {/* MODAL SETUP GESTACIONAL (NOVO E SALVANDO) */}
+      {/* OUTROS MODAIS (GESTACIONAL, CÁLCULO, ANAMNESE, EXAMES...) SÃO IDÊNTICOS, MANTIDOS DO CÓDIGO ORIGINAL */}
+      {/* ... (mantive a lógica igual, apenas garantindo que o fechamento da tag </div> esteja correto) ... */}
+      
+      {/* MODAL SETUP GESTACIONAL */}
       {isGestacionalSetupOpen && (
         <div className="fixed inset-0 z-[200] bg-pink-900/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl p-8 animate-in zoom-in">
@@ -1254,18 +1441,16 @@ export default function PerfilPacientePage() {
         </div>
       )}
 
-      {/* MODAL CÁLCULO ENERGÉTICO (EDITAR E NOVO) */}
+      {/* MODAL CÁLCULO ENERGÉTICO */}
       {isCalculoModalOpen && (
         <div className="fixed inset-0 z-[200] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-in zoom-in duration-200">
-             {/* Header */}
              <div className="p-6 border-b flex justify-between items-center bg-gray-50 rounded-t-2xl">
                <h2 className="text-xl font-bold flex items-center gap-2"><Dumbbell className="text-nutri-primary"/> {editingCalculoId ? 'Editar Planejamento' : 'Novo Planejamento'}</h2>
                <button onClick={() => setIsCalculoModalOpen(false)}><X size={24}/></button>
              </div>
 
              <div className="flex-1 overflow-y-auto p-8 space-y-8">
-               {/* Seção 1 */}
                <section>
                  <h3 className="font-bold text-gray-800 text-lg mb-4 flex items-center gap-2"><span className="bg-nutri-primary text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">1</span> Dados antropométricos</h3>
                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-50 p-6 rounded-2xl border border-gray-100">
@@ -1274,11 +1459,7 @@ export default function PerfilPacientePage() {
                    <div className="space-y-1"><label className="text-xs font-bold text-gray-400 uppercase">Idade</label><input type="number" className="w-full border p-3 rounded-xl outline-none focus:border-nutri-primary font-bold text-gray-700" value={calcForm.idade} onChange={e => setCalcForm({...calcForm, idade: Number(e.target.value)})}/></div>
                    <div className="space-y-1">
                      <label className="text-xs font-bold text-gray-400 uppercase">Sexo</label>
-                     <select 
-                       className="w-full border p-3 rounded-xl outline-none focus:border-nutri-primary bg-white" 
-                       value={calcForm.sexo} 
-                       onChange={e => setCalcForm({...calcForm, sexo: e.target.value as 'masculino' | 'feminino'})}
-                     >
+                     <select className="w-full border p-3 rounded-xl outline-none focus:border-nutri-primary bg-white" value={calcForm.sexo} onChange={e => setCalcForm({...calcForm, sexo: e.target.value as 'masculino' | 'feminino'})}>
                        <option value="masculino">Masculino</option>
                        <option value="feminino">Feminino</option>
                      </select>
@@ -1286,8 +1467,6 @@ export default function PerfilPacientePage() {
                    <div className="space-y-1 col-span-2"><label className="text-xs font-bold text-gray-400 uppercase">Massa Livre Gordura (kg) - Opcional</label><input type="number" className="w-full border p-3 rounded-xl outline-none focus:border-nutri-primary" value={calcForm.mlg} onChange={e => setCalcForm({...calcForm, mlg: Number(e.target.value)})}/></div>
                  </div>
                </section>
-
-               {/* Seção 2 */}
                <section>
                  <h3 className="font-bold text-gray-800 text-lg mb-4 flex items-center gap-2"><span className="bg-nutri-primary text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">2</span> Fórmulas padronizadas</h3>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50 p-6 rounded-2xl border border-gray-100">
@@ -1317,19 +1496,11 @@ export default function PerfilPacientePage() {
                     </div>
                  </div>
                </section>
-
-               {/* Seção 3 */}
                <section>
                  <h3 className="font-bold text-gray-800 text-lg mb-4 flex items-center gap-2"><span className="bg-nutri-primary text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">3</span> Ajustes refinados</h3>
                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-gray-50 p-6 rounded-2xl border border-gray-100">
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Adic. Calórico (MET)</label>
-                      <input type="number" className="w-full border p-3 rounded-xl outline-none focus:border-nutri-primary" value={calcForm.ajuste_met} onChange={e => setCalcForm({...calcForm, ajuste_met: Number(e.target.value)})}/>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-gray-400 uppercase">Peso p/ VENTA</label>
-                      <input type="number" className="w-full border p-3 rounded-xl outline-none focus:border-nutri-primary" value={calcForm.ajuste_venta} onChange={e => setCalcForm({...calcForm, ajuste_venta: Number(e.target.value)})}/>
-                    </div>
+                    <div className="space-y-1"><label className="text-xs font-bold text-gray-400 uppercase">Adic. Calórico (MET)</label><input type="number" className="w-full border p-3 rounded-xl outline-none focus:border-nutri-primary" value={calcForm.ajuste_met} onChange={e => setCalcForm({...calcForm, ajuste_met: Number(e.target.value)})}/></div>
+                    <div className="space-y-1"><label className="text-xs font-bold text-gray-400 uppercase">Peso p/ VENTA</label><input type="number" className="w-full border p-3 rounded-xl outline-none focus:border-nutri-primary" value={calcForm.ajuste_venta} onChange={e => setCalcForm({...calcForm, ajuste_venta: Number(e.target.value)})}/></div>
                     <div className="flex items-center pt-6">
                        <label className="flex items-center gap-2 cursor-pointer">
                          <input type="checkbox" className="w-5 h-5 accent-nutri-primary" checked={calcForm.adicional_gestante} onChange={e => setCalcForm({...calcForm, adicional_gestante: e.target.checked})}/>
@@ -1338,8 +1509,6 @@ export default function PerfilPacientePage() {
                     </div>
                  </div>
                </section>
-
-               {/* Seção 4 - Resultados */}
                <section>
                  <h3 className="font-bold text-gray-800 text-lg mb-4 flex items-center gap-2"><span className="bg-nutri-primary text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">4</span> Resultados</h3>
                  <div className="bg-gray-100 p-8 rounded-3xl border border-gray-200">
@@ -1358,7 +1527,6 @@ export default function PerfilPacientePage() {
                  </div>
                </section>
              </div>
-
              <div className="p-6 border-t bg-gray-50 rounded-b-2xl flex justify-end">
                 <button onClick={handleSaveCalculo} className="bg-nutri-dark text-white px-10 py-4 rounded-xl font-bold text-lg shadow-xl hover:bg-black transition-all flex items-center gap-2">
                    {savingCalculo ? <Loader2 className="animate-spin"/> : <><Save size={20}/> {editingCalculoId ? 'Atualizar cálculos' : 'Salvar cálculos'}</>}
