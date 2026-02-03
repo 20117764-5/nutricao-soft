@@ -421,19 +421,25 @@ export default function PerfilPacientePage() {
      }));
   }
 
-  // 6. Calculadora de Totais
-  const calculateTotals = (itens: ItemDieta[]) => {
-    return itens.reduce((acc, item) => {
-      const fator = item.quantidade_g / 100;
-      return {
-        kcal: acc.kcal + (item.alimento.energia_kcal || 0) * fator,
-        proteina: acc.proteina + (item.alimento.proteina_g || 0) * fator,
-        carboidrato: acc.carboidrato + (item.alimento.carboidrato_g || 0) * fator,
-        lipideos: acc.lipideos + (item.alimento.lipideos_g || 0) * fator,
-        fibras: acc.fibras + (item.alimento.fibra_g || 0) * fator
-      };
-    }, { kcal: 0, proteina: 0, carboidrato: 0, lipideos: 0, fibras: 0 });
-  };
+ // 6. Calculadora de Totais (CORRIGIDA)
+ const calculateTotals = (itens: ItemDieta[]) => {
+  return itens.reduce((acc, item) => {
+    // Se a quantidade for 0 ou vazia, consideramos 1 para não zerar o cálculo
+    const multiplicador = item.quantidade_unid > 0 ? item.quantidade_unid : 1;
+    
+    // Multiplica o peso unitário pela quantidade de unidades
+    // Ex: 2 unidades de 100g = fator 2.0 (200g totais)
+    const fator = (item.quantidade_g * multiplicador) / 100;
+
+    return {
+      kcal: acc.kcal + (item.alimento.energia_kcal || 0) * fator,
+      proteina: acc.proteina + (item.alimento.proteina_g || 0) * fator,
+      carboidrato: acc.carboidrato + (item.alimento.carboidrato_g || 0) * fator,
+      lipideos: acc.lipideos + (item.alimento.lipideos_g || 0) * fator,
+      fibras: acc.fibras + (item.alimento.fibra_g || 0) * fator
+    };
+  }, { kcal: 0, proteina: 0, carboidrato: 0, lipideos: 0, fibras: 0 });
+};
 
   // 7. Totalizador do Dia
   const totaisDiarios = useMemo(() => {
@@ -660,7 +666,7 @@ export default function PerfilPacientePage() {
       {/* SIDEBAR */}
       <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0 overflow-y-auto">
         <div className="p-6 border-b border-gray-100 text-center">
-          <div className="w-14 h-14 bg-nutri-primary/10 rounded-full flex items-center justify-center text-nutri-primary font-bold text-xl mx-auto mb-3 uppercase">{paciente.nome.charAt(0)}</div>
+          
           <h2 className="font-bold text-gray-800 truncate">{paciente.nome}</h2>
         </div>
         <nav className="flex-1 p-4 space-y-1">
@@ -893,16 +899,16 @@ export default function PerfilPacientePage() {
                             </select>
                           </div>
                           <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
-                             <AntroInput label="Tricipital" value={antroForm.tricipital} onChange={v => setAntroForm({...antroForm, tricipital: v})} img="dobras/tricipital.jpg" />
-                             <AntroInput label="Bicipital" value={antroForm.bicipital} onChange={v => setAntroForm({...antroForm, bicipital: v})} img="dobras/bicipital.jpg" />
-                             <AntroInput label="Abdominal" value={antroForm.abdominal} onChange={v => setAntroForm({...antroForm, abdominal: v})} img="dobras/abdominal.jpg" />
-                             <AntroInput label="Subescapular" value={antroForm.subescapular} onChange={v => setAntroForm({...antroForm, subescapular: v})} img="dobras/subescapular.jpg" />
-                             <AntroInput label="Axilar Média" value={antroForm.axilar_media} onChange={v => setAntroForm({...antroForm, axilar_media: v})} img="dobras/axilar.jpg" />
-                             <AntroInput label="Coxa" value={antroForm.coxa} onChange={v => setAntroForm({...antroForm, coxa: v})} img="dobras/coxa.webp" />
-                             <AntroInput label="Torácica" value={antroForm.toracica} onChange={v => setAntroForm({...antroForm, toracica: v})} img="dobras/toracica.webp" />
-                             <AntroInput label="Supra-ilíaca" value={antroForm.suprailiaca} onChange={v => setAntroForm({...antroForm, suprailiaca: v})} img="dobras/suprailiaca.webp" />
-                             <AntroInput label="Panturrilha" value={antroForm.panturrilha_dobra} onChange={v => setAntroForm({...antroForm, panturrilha_dobra: v})} img="dobras/panturrilha.webp" />
-                             <AntroInput label="Supraespinhal" value={antroForm.supraespinhal} onChange={v => setAntroForm({...antroForm, supraespinhal: v})} img="dobras/supraespinhal.webp" />
+                             <AntroInput label="Tricipital" value={antroForm.tricipital} onChange={v => setAntroForm({...antroForm, tricipital: v})} img="/assets/antropometria/dobras/tricipital.jpg" />
+                             <AntroInput label="Bicipital" value={antroForm.bicipital} onChange={v => setAntroForm({...antroForm, bicipital: v})} img="/assets/antropometria/dobras/bicipital.jpg" />
+                             <AntroInput label="Abdominal" value={antroForm.abdominal} onChange={v => setAntroForm({...antroForm, abdominal: v})} img="/assets/antropometria/dobras/abdominal.jpg" />
+                             <AntroInput label="Subescapular" value={antroForm.subescapular} onChange={v => setAntroForm({...antroForm, subescapular: v})} img="/assets/antropometria/dobras/subescapular.jpg" />
+                             <AntroInput label="Axilar Média" value={antroForm.axilar_media} onChange={v => setAntroForm({...antroForm, axilar_media: v})} img="/assets/antropometria/dobras/axilar.jpg" />
+                             <AntroInput label="Coxa" value={antroForm.coxa} onChange={v => setAntroForm({...antroForm, coxa: v})} img="/assets/antropometria/dobras/coxa.webp" />
+                             <AntroInput label="Torácica" value={antroForm.toracica} onChange={v => setAntroForm({...antroForm, toracica: v})} img="/assets/antropometria/dobras/toracica.webp" />
+                             <AntroInput label="Supra-ilíaca" value={antroForm.suprailiaca} onChange={v => setAntroForm({...antroForm, suprailiaca: v})} img="/assets/antropometria/dobras/suprailiaca.webp" />
+                             <AntroInput label="Panturrilha" value={antroForm.panturrilha_dobra} onChange={v => setAntroForm({...antroForm, panturrilha_dobra: v})} img="/assets/antropometria/dobras/panturrilha.webp" />
+                             <AntroInput label="Supraespinhal" value={antroForm.supraespinhal} onChange={v => setAntroForm({...antroForm, supraespinhal: v})} img="/assets/antropometria/dobras/supraespinhal.webp" />
                           </div>
                        </div>
                        
@@ -910,19 +916,19 @@ export default function PerfilPacientePage() {
                        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
                           <h4 className="font-bold text-gray-800 mb-4 border-b pb-2">Circunferências (cm)</h4>
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                             <AntroInput label="Pescoço" value={antroForm.pescoco} onChange={v => setAntroForm({...antroForm, pescoco: v})} img="pescoco.webp" />
-                             <AntroInput label="Tórax" value={antroForm.torax} onChange={v => setAntroForm({...antroForm, torax: v})} img="torax.webp" />
-                             <AntroInput label="Ombro" value={antroForm.ombro} onChange={v => setAntroForm({...antroForm, ombro: v})} img="ombro.webp" />
-                             <AntroInput label="Cintura" value={antroForm.cintura} onChange={v => setAntroForm({...antroForm, cintura: v})} img="cintura.webp" />
-                             <AntroInput label="Abdomen" value={antroForm.abdomen_circ} onChange={v => setAntroForm({...antroForm, abdomen_circ: v})} img="abdomen.webp" />
-                             <AntroInput label="Quadril" value={antroForm.quadril} onChange={v => setAntroForm({...antroForm, quadril: v})} img="quadril.webp" />
-                             <AntroInput label="Braço Relax." value={antroForm.braco_relax} onChange={v => setAntroForm({...antroForm, braco_relax: v})} img="braco_relaxado.webp" />
-                             <AntroInput label="Braço Contr." value={antroForm.braco_contr} onChange={v => setAntroForm({...antroForm, braco_contr: v})} img="braco_contraido.webp" />
-                             <AntroInput label="Antebraço" value={antroForm.antebraco} onChange={v => setAntroForm({...antroForm, antebraco: v})} img= "antebraco.webp" />
-                             <AntroInput label="Coxa Prox." value={antroForm.coxa_prox} onChange={v => setAntroForm({...antroForm, coxa_prox: v})} img="coxa_proximal.webp" />
-                             <AntroInput label="Coxa Med." value={antroForm.coxa_med} onChange={v => setAntroForm({...antroForm, coxa_med: v})} img="coxa_media.webp" />
-                             <AntroInput label="Coxa Dist." value={antroForm.coxa_dist} onChange={v => setAntroForm({...antroForm, coxa_dist: v})} img="coxa_distal.webp" />
-                             <AntroInput label="Panturrilha" value={antroForm.panturrilha_circ} onChange={v => setAntroForm({...antroForm, panturrilha_circ: v})} img="panturrilha.webp" />
+                             <AntroInput label="Pescoço" value={antroForm.pescoco} onChange={v => setAntroForm({...antroForm, pescoco: v})} img="/assets/antropometria/pescoco.webp" />
+                             <AntroInput label="Tórax" value={antroForm.torax} onChange={v => setAntroForm({...antroForm, torax: v})} img="/assets/antropometria/torax.webp" />
+                             <AntroInput label="Ombro" value={antroForm.ombro} onChange={v => setAntroForm({...antroForm, ombro: v})} img="/assets/antropometria/ombro.webp" />
+                             <AntroInput label="Cintura" value={antroForm.cintura} onChange={v => setAntroForm({...antroForm, cintura: v})} img="/assets/antropometria/cintura.webp" />
+                             <AntroInput label="Abdomen" value={antroForm.abdomen_circ} onChange={v => setAntroForm({...antroForm, abdomen_circ: v})} img="/assets/antropometria/abdomen.webp" />
+                             <AntroInput label="Quadril" value={antroForm.quadril} onChange={v => setAntroForm({...antroForm, quadril: v})} img="/assets/antropometria/quadril.webp" />
+                             <AntroInput label="Braço Relax." value={antroForm.braco_relax} onChange={v => setAntroForm({...antroForm, braco_relax: v})} img="/assets/antropometria/braco_relaxado.webp" />
+                             <AntroInput label="Braço Contr." value={antroForm.braco_contr} onChange={v => setAntroForm({...antroForm, braco_contr: v})} img="/assets/antropometria/braco_contraido.webp" />
+                             <AntroInput label="Antebraço" value={antroForm.antebraco} onChange={v => setAntroForm({...antroForm, antebraco: v})} img= "/assets/antropometria/antebraco.webp" />
+                             <AntroInput label="Coxa Prox." value={antroForm.coxa_prox} onChange={v => setAntroForm({...antroForm, coxa_prox: v})} img="/assets/antropometria/coxa_proximal.webp" />
+                             <AntroInput label="Coxa Med." value={antroForm.coxa_med} onChange={v => setAntroForm({...antroForm, coxa_med: v})} img="/assets/antropometria/coxa_media.webp" />
+                             <AntroInput label="Coxa Dist." value={antroForm.coxa_dist} onChange={v => setAntroForm({...antroForm, coxa_dist: v})} img="/assets/antropometria/coxa_distal.webp" />
+                             <AntroInput label="Panturrilha" value={antroForm.panturrilha_circ} onChange={v => setAntroForm({...antroForm, panturrilha_circ: v})} img="/assets/antropometria/panturrilha.webp" />
                           </div>
                        </div>
 
@@ -1618,7 +1624,7 @@ export default function PerfilPacientePage() {
 function SidebarItem({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) { return (<button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-medium ${active ? 'bg-nutri-primary text-white shadow-md' : 'text-gray-500 hover:bg-gray-50 hover:text-nutri-dark'}`}>{icon} <span className="flex-1 text-left">{label}</span> {active && <ChevronRight size={14} />}</button>); }
 function InfoField({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) { return (<div className="space-y-1"><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">{label}</label><div className="flex items-center font-bold text-gray-800 text-sm border-b border-gray-100 pb-1">{icon}{value}</div></div>); }
 function ActionCard({ icon, label, color, onClick }: { icon: React.ReactNode; label: string; color: string; onClick: () => void }) { return (<button onClick={onClick} className={`flex flex-col items-center justify-center p-4 rounded-2xl shadow-sm hover:scale-105 transition-all h-32 w-full group ${color}`}><div className="bg-white/20 p-3 rounded-full mb-3 group-hover:bg-white/30 transition-all text-white/80">{icon}</div><span className="text-white font-bold text-sm text-center leading-tight">{label}</span></button>); }
-function AntroInput({ label, value, onChange, img }: { label: string; value: number; onChange: (v: number) => void; img?: string }) { return (<div className="space-y-1 relative group"><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest flex items-center gap-1">{label}{img && <Info size={10} className="text-nutri-primary cursor-help" />}</label><input type="number" className="w-full border-b border-gray-200 focus:border-nutri-primary outline-none py-1 font-bold text-gray-700 transition-all bg-transparent" value={value || ''} onChange={e => onChange(Number(e.target.value))} />{img && (<div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none animate-in fade-in zoom-in duration-200"><div className="bg-white p-2 rounded-xl shadow-2xl border border-gray-100 w-48"><div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-1"><img src={`/assets/antropometria/${img}`} alt={label} className="w-full h-full object-cover" /></div><p className="text-[10px] text-center text-gray-500 font-bold">Local de Medição</p></div><div className="w-3 h-3 bg-white border-r border-b border-gray-100 transform rotate-45 absolute -bottom-1.5 left-1/2 -translate-x-1/2 shadow-sm"></div></div>)}</div>); }
+function AntroInput({ label, value, onChange, img }: { label: string; value: number; onChange: (v: number) => void; img?: string }) { return (<div className="space-y-1 relative group"><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest flex items-center gap-1">{label}{img && <Info size={10} className="text-nutri-primary cursor-help" />}</label><input type="number" className="w-full border-b border-gray-200 focus:border-nutri-primary outline-none py-1 font-bold text-gray-700 transition-all bg-transparent" value={value || ''} onChange={e => onChange(Number(e.target.value))} />{img && (<div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none animate-in fade-in zoom-in duration-200"><div className="bg-white p-2 rounded-xl shadow-2xl border border-gray-100 w-48"><div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-1"><img src={img} alt={label} className="w-full h-full object-cover" /></div><p className="text-[10px] text-center text-gray-500 font-bold">Local de Medição</p></div><div className="w-3 h-3 bg-white border-r border-b border-gray-100 transform rotate-45 absolute -bottom-1.5 left-1/2 -translate-x-1/2 shadow-sm"></div></div>)}</div>); }
 function ResultRow({ label, value, sub }: { label: string; value: string | number; sub?: string }) { return (<div className="flex justify-between items-center mb-3 group hover:bg-white/5 p-1 rounded transition-colors"><div><p className="text-xs text-white/60 group-hover:text-white transition-colors">{label}</p>{sub && <p className="text-[10px] text-nutri-primary font-bold uppercase">{sub}</p>}</div><p className="font-bold text-white text-right">{value}</p></div>); }
 function InfoRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) { return (<div className="flex justify-between items-center"><span className="text-gray-500">{label}:</span><span className={`font-bold ${highlight ? 'text-pink-600' : 'text-gray-800'}`}>{value}</span></div>); }
 function ResultBox({ label, value, icon }: { label: string; value: string | number | undefined | null; icon?: React.ReactNode }) { return (<div className="bg-gray-50 p-4 rounded-xl border border-gray-100"><div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-gray-400 uppercase flex items-center gap-1">{label} {icon}</span></div><p className="text-xl font-bold text-gray-800">{value || '—'}</p></div>); }
